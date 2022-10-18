@@ -1,0 +1,13 @@
+; Read a single file with io_uring at different depths
+[global]
+ioengine=io_uring
+direct=1
+rw=randread
+size=1024m
+directory=fio-datadir
+
+[benchfile]
+iodepth=96
+iodepth_batch_submit=32
+iodepth_low=64
+bs=4k

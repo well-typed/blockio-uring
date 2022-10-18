@@ -1,0 +1,51 @@
+cabal-version:       >=1.10
+
+name:                blockio-uring
+version:             0.1.0.0
+synopsis:            Perform batches of asynchronous disk IO operations.
+description:         Support for disk I/O operations using the Linux io_uring
+                     API. The library supports submitting large batches of I/O
+                     operations in one go. It also supports submitting batches
+                     from multiple Haskell threads concurrently. The I/O only
+                     blocks the calling thread, not all other Haskell threads.
+                     In this style, using a combination of batching and
+                     concurrency it is possible to saturate modern SSDs, thus
+                     achieving maximum I/O throughput. This is particularly
+                     helpful for performing lots of random reads.
+
+                     The library only supports recent versions of Linux, because
+                     it uses the io_uring kernel API. It only supports disk
+                     operations, not socket operations.
+
+-- bug-reports:
+license:             MIT
+license-file:        LICENSE
+author:              Duncan Coutts
+maintainer:          duncan@well-typed.com
+copyright:           (c) Well-Typed LLP 2022
+category:            System
+build-type:          Simple
+extra-source-files:  CHANGELOG.md
+
+library
+  exposed-modules:     System.IO.BlockIO
+  other-modules:       System.IO.BlockIO.URing
+                       System.IO.BlockIO.URingFFI
+  -- other-extensions:
+  build-depends:       base, array, unix
+  pkgconfig-depends:   liburing
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+
+test-suite test
+  default-language:    Haskell2010
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test, .
+  main-is:             Test.hs
+  build-depends:       base, array, unix, random, time, containers, async
+  pkgconfig-depends:   liburing
+  other-modules:       System.IO.BlockIO
+                       System.IO.BlockIO.URing
+                       System.IO.BlockIO.URingFFI
+  ghc-options:         -Wall -threaded
+
