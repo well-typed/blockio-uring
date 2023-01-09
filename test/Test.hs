@@ -43,6 +43,7 @@ main1 filename = do
       print =<< io_uring_queue_init 8 uring 0
 
       sqe <- io_uring_get_sqe uring
+      print sqe
       io_uring_prep_read sqe fd bufptr 4096 0
       print =<< io_uring_submit uring
 

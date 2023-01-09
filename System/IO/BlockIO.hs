@@ -21,12 +21,14 @@ import Data.Array.Unboxed
 import Data.Coerce
 
 import Control.Monad
-import Control.Concurrent (ThreadId, forkIO, killThread)
+import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
 import Control.Concurrent.QSemN
 import Control.Concurrent.Chan
 import Control.Exception (mask_, throw, ArrayException(UndefinedElement),
-                          assert)
+                          finally, assert)
+import System.IO.Error
+import GHC.IO.Exception (IOErrorType(ResourceVanished))
 
 import Foreign.Ptr
 import Foreign.C.Error (Errno(..))
@@ -58,8 +60,8 @@ data IOCtx = IOCtx {
                -- submitting IO operations.
                ioctxChanIOBatchIx :: !(Chan IOBatchIx),
 
-               -- | The completion thread, used for shutdown.
-               ioctxThread :: !ThreadId
+               -- | An MVar to synchronise on for shutdown
+               ioctxCloseSync :: !(MVar ())
              }
 
 data IOCtxParams = IOCtxParams {
@@ -82,13 +84,15 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} =
       ioctxURing         <- newMVar uring
       ioctxChanIOBatch   <- newChan
       ioctxChanIOBatchIx <- newChan
-      ioctxThread        <- forkIO $
-                              completionThread
-                                uring
-                                ioctxConcurrencyLimit
-                                ioctxQSemN
-                                ioctxChanIOBatch
-                                ioctxChanIOBatchIx
+      ioctxCloseSync     <- newEmptyMVar
+      _ <- forkIO $
+             completionThread
+               uring
+               ioctxCloseSync
+               ioctxConcurrencyLimit
+               ioctxQSemN
+               ioctxChanIOBatch
+               ioctxChanIOBatchIx
       let initialBatchIxs :: [IOBatchIx]
           initialBatchIxs =
             [IOBatchIx 0 .. IOBatchIx (fromIntegral (ioctxConcurrencyLimit-1))]
@@ -98,18 +102,19 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} =
         ioctxURing,
         ioctxChanIOBatch,
         ioctxChanIOBatchIx,
-        ioctxThread
+        ioctxCloseSync
       }
 
 closeIOCtx :: IOCtx -> IO ()
-closeIOCtx IOCtx {ioctxURing, ioctxThread} = do
-    print ("closeIOCtx", "start")
+closeIOCtx IOCtx {ioctxURing, ioctxCloseSync} = do
     uring <- takeMVar ioctxURing
-    print ("closeIOCtx", "got ioctxURing lock")
+    URing.prepareNop uring (URing.IOOpId maxBound)
+    URing.submitIO uring
+    takeMVar ioctxCloseSync
     URing.closeURing uring
-    print ("closeIOCtx", "closed uring")
-    killThread ioctxThread
-    print ("closeIOCtx", "end")
+    putMVar ioctxURing (throw closed)
+  where
+    closed = mkIOError ResourceVanished "IOCtx closed" Nothing Nothing
 
 data IOOp = IOOpRead  !Fd !FileOffset !(Ptr Word8) !ByteCount
           | IOOpWrite !Fd !FileOffset !(Ptr Word8) !ByteCount
@@ -239,19 +244,20 @@ unpackIOOpId (URing.IOOpId w64) =
     opix    = fromIntegral w64
 
 completionThread :: URing.URing
+                 -> MVar ()
                  -> Int
                  -> QSemN
                  -> Chan IOBatch
                  -> Chan IOBatchIx
                  -> IO ()
-completionThread uring maxc qsem chaniobatch chaniobatchix = do
+completionThread uring done maxc qsem chaniobatch chaniobatchix = do
     let iobatchixBounds :: (IOBatchIx, IOBatchIx)
         iobatchixBounds = (IOBatchIx 0, IOBatchIx (fromIntegral maxc-1))
     counts      <- newArray iobatchixBounds (-1)
     results     <- newArray iobatchixBounds invalidEntry
     completions <- newArray iobatchixBounds invalidEntry
-    forever $
-      collectCompletion counts results completions
+    collectCompletion counts results completions
+      `finally` putMVar done ()
   where
     collectCompletion :: IOUArray IOBatchIx Int
                       -> IOArray  IOBatchIx (IOUArray IOOpIx Int32)
@@ -260,25 +266,27 @@ completionThread uring maxc qsem chaniobatch chaniobatchix = do
     collectCompletion counts results completions = do
       iocompletion <- URing.awaitIO uring
       let (URing.IOCompletion ioopid iores) = iocompletion
-          (iobatchix, ioopix) = unpackIOOpId ioopid
-      count <- do
-        c <- readArray counts iobatchix
-        if c < 0 then collectIOBatches iobatchix
-                 else return c
-      assert (count > 0) (return ())
-      writeArray counts iobatchix (count-1)
-      result <- readArray results iobatchix
-      writeArray result ioopix (coerce iores)
-      when (count == 1) $ do
-        completion <- readArray completions iobatchix
-        writeArray counts      iobatchix (-1)
-        writeArray results     iobatchix invalidEntry
-        writeArray completions iobatchix invalidEntry
-        result' <- freeze result
-        putMVar completion (result' :: UArray IOOpIx Int32)
-        writeChan chaniobatchix iobatchix
-        let !qrelease = rangeSize (bounds result')
-        signalQSemN qsem qrelease
+      unless (ioopid == URing.IOOpId maxBound) $ do
+        let (iobatchix, ioopix) = unpackIOOpId ioopid
+        count <- do
+          c <- readArray counts iobatchix
+          if c < 0 then collectIOBatches iobatchix
+                   else return c
+        assert (count > 0) (return ())
+        writeArray counts iobatchix (count-1)
+        result <- readArray results iobatchix
+        writeArray result ioopix (coerce iores)
+        when (count == 1) $ do
+          completion <- readArray completions iobatchix
+          writeArray counts      iobatchix (-1)
+          writeArray results     iobatchix invalidEntry
+          writeArray completions iobatchix invalidEntry
+          result' <- freeze result
+          putMVar completion (result' :: UArray IOOpIx Int32)
+          writeChan chaniobatchix iobatchix
+          let !qrelease = rangeSize (bounds result')
+          signalQSemN qsem qrelease
+        collectCompletion counts results completions
 
       -- wait for single IO result
       -- if the count is positive, decrement and update result array

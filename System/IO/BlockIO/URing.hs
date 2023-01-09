@@ -66,6 +66,14 @@ prepareWrite (URing uringptr) fd off buf len (IOOpId ioopid) = do
     FFI.io_uring_prep_write sqeptr fd buf (fromIntegral len) (fromIntegral off)
     FFI.io_uring_sqe_set_data sqeptr (fromIntegral ioopid)
 
+prepareNop :: URing -> IOOpId -> IO ()
+prepareNop (URing uringptr) (IOOpId ioopid) = do
+    sqeptr <- throwErrResIfNull "prepareNop" fullErrorType
+                                "URing I/O queue full" $
+      FFI.io_uring_get_sqe uringptr
+    FFI.io_uring_prep_nop sqeptr
+    FFI.io_uring_sqe_set_data sqeptr (fromIntegral ioopid)
+
 submitIO :: URing -> IO ()
 submitIO (URing uringptr) =
     throwErrnoResIfNegRetry_ "submitIO" $

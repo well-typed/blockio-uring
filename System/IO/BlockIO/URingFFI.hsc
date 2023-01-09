@@ -45,6 +45,9 @@ foreign import capi unsafe "liburing.h io_uring_prep_read"
 foreign import capi unsafe "liburing.h io_uring_prep_write"
   io_uring_prep_write :: Ptr URingSQE -> Fd -> Ptr Word8 -> CUInt -> CULong -> IO ()
 
+foreign import capi unsafe "liburing.h io_uring_prep_nop"
+  io_uring_prep_nop :: Ptr URingSQE -> IO ()
+
 foreign import capi unsafe "liburing.h io_uring_submit"
   io_uring_submit :: Ptr URing -> IO CInt
 
