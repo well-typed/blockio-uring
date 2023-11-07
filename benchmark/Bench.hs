@@ -9,7 +9,6 @@ import Control.Exception
 import Control.Concurrent.Async
 
 import Foreign
-import System.IO
 import System.Posix.IO
 import System.Posix.Files
 
@@ -21,61 +20,20 @@ import Data.Time
 import System.IO.BlockIO
 import System.IO.BlockIO.URing hiding (submitIO)
 import qualified System.IO.BlockIO.URing as URing
-import System.IO.BlockIO.URingFFI
 
 main :: IO ()
 main = do
   args <- getArgs
   case args of
-    ["1", filename] -> main1 filename
-    ["2", filename] -> main2 filename
-    ["3", filename] -> main3 filename
-    ["4", filename] -> main4 filename
+    ["low",  filename] -> main_lowlevel  filename
+    ["high", filename] -> main_highlevel filename
     _   -> do
-      putStrLn "Usage: Test [TestNo (1..4)] [DataFile]"
+      putStrLn "Usage: Bench [low|high] [DataFile]"
       exitFailure
 
-main1 :: FilePath -> IO ()
-main1 filename = do
-  fd <- openFd filename ReadOnly Nothing defaultFileFlags
-  alloca $ \uring ->
-    allocaBytes 4096 $ \bufptr -> do
-      print =<< io_uring_queue_init 8 uring 0
-
-      sqe <- io_uring_get_sqe uring
-      print sqe
-      io_uring_prep_read sqe fd bufptr 4096 0
-      print =<< io_uring_submit uring
-
-      cqe <- alloca $ \cqeptrptr -> do
-        print =<< io_uring_wait_cqe uring cqeptrptr
-        cqeptr <- peek cqeptrptr
-        cqe <- peek cqeptr
-        io_uring_cqe_seen uring cqeptr
-        return cqe
- 
-      print cqe
-      hPutBuf stdout bufptr (fromIntegral (cqe_res cqe))
-
-      io_uring_queue_exit uring
-
-main2 :: FilePath -> IO ()
-main2 filename = do
-  fd <- openFd filename ReadOnly Nothing defaultFileFlags
-  withURing URingParams { uringSize = 8 } $ \uring ->
-
-    allocaBytes 4096 $ \bufptr -> do
-
-      prepareRead uring fd 0 bufptr 4096 (IOOpId 42)
-      URing.submitIO uring
-
-      (IOCompletion iometa len) <- awaitIO uring
-      print (iometa, len)
-      hPutBuf stdout bufptr (fromIntegral len)
-
-
-main3 :: FilePath -> IO ()
-main3 filename = do
+main_lowlevel :: FilePath -> IO ()
+main_lowlevel filename = do
+  putStrLn "Low-level API benchmark"
   fd <- openFd filename ReadOnly Nothing defaultFileFlags
   status <- getFdStatus fd
   let size      = fileSize status
@@ -124,14 +82,12 @@ main3 filename = do
       go blocks'
       collectBatch 64
       after <- getCurrentTime
+      report before after total
 
-      let elapsed = after `diffUTCTime` before
-      print (total,
-             elapsed,
-             round (fromIntegral total / realToFrac elapsed :: Double) :: Int)
 
-main4 :: FilePath -> IO ()
-main4 filename = do
+main_highlevel :: FilePath -> IO ()
+main_highlevel filename = do
+  putStrLn "High-level API benchmark"
   fd     <- openFd filename ReadOnly Nothing defaultFileFlags
   status <- getFdStatus fd
   rng    <- initStdGen
@@ -156,17 +112,23 @@ main4 filename = do
                 blockoff = fromIntegral (block * 4096)
           ]
       after <- getCurrentTime
-
       let total   = lastBlock + 1
-          elapsed = after `diffUTCTime` before
-          iops    :: Int
-          iops    = round (fromIntegral total / realToFrac elapsed :: Double)
-      print (total, elapsed, iops)
+      report before after total
+
+report :: UTCTime -> UTCTime -> Int -> IO ()
+report before after total = do
+    putStrLn $ "Total I/O ops: " ++ show total
+    putStrLn $ "Elapsed time:  " ++ show elapsed
+    putStrLn $ "IOPS:          " ++ show iops
+  where
+    elapsed = after `diffUTCTime` before
+
+    iops    :: Int
+    iops = round (fromIntegral total / realToFrac elapsed :: Double)
 
 groupsOfN :: Int -> [a] -> [[a]]
 groupsOfN _ [] = []
 groupsOfN n xs = take n xs : groupsOfN n (drop n xs)
-
 
 randomPermute :: Ord a => StdGen -> [a] -> [a]
 randomPermute rng0 xs0 =
