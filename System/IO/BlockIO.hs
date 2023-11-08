@@ -9,7 +9,22 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
-module System.IO.BlockIO where
+module System.IO.BlockIO (
+
+    -- * I\/O context and initialisation
+    IOCtx,
+    initIOCtx,
+    IOCtxParams(..),
+    defaultIOCtxParams,
+    closeIOCtx,
+
+    -- * Performing I\/O
+    submitIO,
+    IOOp(..),
+    IOResult(IOResult, IOError),
+    ByteCount, Errno(..),
+
+  ) where
 
 import Data.Word
 import Data.Int
