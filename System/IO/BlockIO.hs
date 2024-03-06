@@ -41,7 +41,7 @@ import Control.Concurrent.MVar
 import Control.Concurrent.QSemN
 import Control.Concurrent.Chan
 import Control.Exception (mask_, throw, ArrayException(UndefinedElement),
-                          finally, assert)
+                          finally, assert, throwIO)
 import System.IO.Error
 import GHC.IO.Exception (IOErrorType(ResourceVanished))
 
@@ -49,6 +49,7 @@ import Foreign.Ptr
 import Foreign.C.Error (Errno(..))
 import Foreign.C.Types (CInt(..), CSize)
 import System.Posix.Types (Fd, FileOffset, ByteCount)
+import System.Posix.Internals (hostIsThreaded)
 
 import qualified System.IO.BlockIO.URing as URing
 
@@ -92,7 +93,8 @@ defaultIOCtxParams =
   }
 
 initIOCtx :: IOCtxParams -> IO IOCtx
-initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} =
+initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
+    unless hostIsThreaded $ throwIO rtrsNotThreaded
     mask_ $ do
       ioctxQSemN         <- newQSemN ioctxConcurrencyLimit
       uring              <- URing.setupURing (URing.URingParams ioctxBatchSizeLimit)
@@ -119,6 +121,13 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} =
         ioctxChanIOBatchIx,
         ioctxCloseSync
       }
+  where
+    rtrsNotThreaded =
+        mkIOError
+          illegalOperationErrorType
+          "The run-time system should be threaded, make sure you are passing the -threaded flag"
+          Nothing
+          Nothing
 
 closeIOCtx :: IOCtx -> IO ()
 closeIOCtx IOCtx {ioctxURing, ioctxCloseSync} = do
