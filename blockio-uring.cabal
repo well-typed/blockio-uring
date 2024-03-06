@@ -1,4 +1,4 @@
-cabal-version:       >=1.10
+cabal-version:       3.4
 
 name:                blockio-uring
 version:             0.1.0.0
@@ -17,22 +17,28 @@ description:         Support for disk I/O operations using the Linux io_uring
                      it uses the io_uring kernel API. It only supports disk
                      operations, not socket operations.
 
--- bug-reports:
 license:             MIT
 license-file:        LICENSE
 author:              Duncan Coutts
 maintainer:          duncan@well-typed.com
-copyright:           (c) Well-Typed LLP 2022
+copyright:           (c) Well-Typed LLP 2022 - 2024
 category:            System
 build-type:          Simple
-extra-source-files:  CHANGELOG.md
+tested-with:         GHC ==9.2 || ==9.4 || ==9.6 || ==9.8
+extra-doc-files:     CHANGELOG.md
+                     README.md
+
+source-repository head
+  type:     git
+  location: https://github.com/well-typed/blockio-uring
 
 library
   exposed-modules:     System.IO.BlockIO
   other-modules:       System.IO.BlockIO.URing
                        System.IO.BlockIO.URingFFI
-  -- other-extensions:
-  build-depends:       base, array, unix
+  build-depends:       base >= 4.16 && < 4.20
+                     , array ^>= 0.5
+                     , unix ^>= 2.8
   pkgconfig-depends:   liburing
   default-language:    Haskell2010
   ghc-options:         -Wall
