@@ -137,6 +137,8 @@ data IOOp = IOOpRead  !Fd !FileOffset !(Ptr Word8) !ByteCount
 
 newtype IOResult = IOResult_ URing.IOResult
 
+{-# COMPLETE IOResult, IOError #-}
+
 pattern IOResult :: ByteCount -> IOResult
 pattern IOResult c <- (viewIOResult -> Just c)
   where
