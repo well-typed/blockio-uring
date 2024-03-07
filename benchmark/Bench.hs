@@ -34,7 +34,7 @@ main = do
 main_lowlevel :: FilePath -> IO ()
 main_lowlevel filename = do
   putStrLn "Low-level API benchmark"
-  fd <- openFd filename ReadOnly Nothing defaultFileFlags
+  fd <- openFd filename ReadOnly defaultFileFlags
   status <- getFdStatus fd
   let size      = fileSize status
       lastBlock :: Int
@@ -88,7 +88,7 @@ main_lowlevel filename = do
 main_highlevel :: FilePath -> IO ()
 main_highlevel filename = do
   putStrLn "High-level API benchmark"
-  fd     <- openFd filename ReadOnly Nothing defaultFileFlags
+  fd     <- openFd filename ReadOnly defaultFileFlags
   status <- getFdStatus fd
   rng    <- initStdGen
   let size      = fileSize status
