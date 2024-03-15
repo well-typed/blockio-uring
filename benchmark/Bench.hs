@@ -1,8 +1,9 @@
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE BangPatterns #-}
+{- HLINT ignore "Use camelCase" -}
 
 module Main (main) where
 
+import Data.Primitive
 import qualified Data.Set as Set
 import Control.Monad
 import Control.Exception
@@ -100,20 +101,20 @@ main_highlevel filename = do
                     ioctxConcurrencyLimit = 64 * 4
                   }
       blocks    = zip [0..] (randomPermute rng [0..lastBlock])
-  bracket (initIOCtx params) closeIOCtx $ \ioctx ->
-    allocaBytes (4096 * nbufs) $ \bufptr -> do
+  bracket (initIOCtx params) closeIOCtx $ \ioctx -> do
+    buf <- newPinnedByteArray (4096 * nbufs)
 
-      before <- getCurrentTime
-      forConcurrently_ (groupsOfN 32 blocks) $ \batch ->
-        submitIO ioctx
-          [ IOOpRead fd blockoff bufptr' 4096
-          | (i, block) <- batch
-          , let bufptr'  = bufptr `plusPtr` ((i `mod` nbufs) * 4096)
-                blockoff = fromIntegral (block * 4096)
-          ]
-      after <- getCurrentTime
-      let total   = lastBlock + 1
-      report before after total
+    before <- getCurrentTime
+    forConcurrently_ (groupsOfN 32 blocks) $ \batch ->
+      submitIO ioctx
+        [ IOOpRead fd blockoff buf bufOff 4096
+        | (i, block) <- batch
+        , let bufOff  = (i `mod` nbufs) * 4096
+              blockoff = fromIntegral (block * 4096)
+        ]
+    after <- getCurrentTime
+    let total   = lastBlock + 1
+    report before after total
 
 report :: UTCTime -> UTCTime -> Int -> IO ()
 report before after total = do

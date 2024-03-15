@@ -34,8 +34,10 @@ import Data.Array.IArray
 import Data.Array.IO
 import Data.Array.Unboxed
 import Data.Coerce
+import Data.Primitive.ByteArray
 
 import Control.Monad
+import Control.Monad.Primitive
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
 import Control.Concurrent.QSemN
@@ -43,7 +45,7 @@ import Control.Concurrent.Chan
 import Control.Exception (mask_, throw, ArrayException(UndefinedElement),
                           finally, assert, throwIO)
 import System.IO.Error
-import GHC.IO.Exception (IOErrorType(ResourceVanished))
+import GHC.IO.Exception (IOErrorType(ResourceVanished, InvalidArgument))
 
 import Foreign.Ptr
 import Foreign.C.Error (Errno(..))
@@ -141,9 +143,11 @@ closeIOCtx IOCtx {ioctxURing, ioctxCloseSync} = do
         URing.closeURing uring
         putMVar ioctxURing Nothing
 
-data IOOp = IOOpRead  !Fd !FileOffset !(Ptr Word8) !ByteCount
-          | IOOpWrite !Fd !FileOffset !(Ptr Word8) !ByteCount
-  deriving Show
+-- | The 'MutableByteArray' buffers within __must__ be pinned. Addresses into
+-- these buffers are passed to @io_uring@, and the buffers must therefore not be
+-- moved around.
+data IOOp m = IOOpRead  !Fd !FileOffset !(MutableByteArray (PrimState m)) !Int !ByteCount
+            | IOOpWrite !Fd !FileOffset !(MutableByteArray (PrimState m)) !Int !ByteCount
 
 newtype IOResult = IOResult_ URing.IOResult
 
@@ -206,7 +210,7 @@ viewIOError (IOResult_ e)
 --   the target depth, fill it up to double again. This way there is always
 --   at least the target number in flight at once.
 --
-submitIO :: IOCtx -> [IOOp] -> IO [IOResult]
+submitIO :: IOCtx -> [IOOp IO] -> IO [IOResult]
 submitIO IOCtx {
            ioctxQSemN,
            ioctxURing,
@@ -219,11 +223,13 @@ submitIO IOCtx {
     waitQSemN ioctxQSemN (fromIntegral iobatchOpCount)
     iobatchIx         <- readChan ioctxChanIOBatchIx
     iobatchCompletion <- newEmptyMVar
+    let iobatchKeepAlives = ioops
     writeChan ioctxChanIOBatch
               IOBatch {
                 iobatchIx,
                 iobatchOpCount,
-                iobatchCompletion
+                iobatchCompletion,
+                iobatchKeepAlives
               }
     withMVar ioctxURing $ \case
       Nothing -> throwIO closed
@@ -232,22 +238,35 @@ submitIO IOCtx {
         sequence_
           [ --print ioop >>
             case ioop of
-            IOOpRead  fd off buf cnt ->
-              URing.prepareRead  uring fd off buf cnt ioopid
-
-            IOOpWrite fd off buf cnt ->
-              URing.prepareWrite uring fd off buf cnt ioopid
+            IOOpRead  fd off buf bufOff cnt -> do
+              guardPinned buf
+              URing.prepareRead  uring fd off
+                                 (mutableByteArrayContents buf `plusPtr` bufOff)
+                                 cnt ioopid
+            IOOpWrite fd off buf bufOff cnt -> do
+              guardPinned buf
+              URing.prepareWrite uring fd off
+                                 (mutableByteArrayContents buf `plusPtr` bufOff)
+                                 cnt ioopid
           | (ioop, ioopix) <- zip ioops [IOOpIx 0 ..]
           , let !ioopid = packIOOpId iobatchIx ioopix ]
         URing.submitIO uring
 --      print ("submitIO", "submitting done")
     map (IOResult_ . coerce) . elems <$> takeMVar iobatchCompletion
-  where closed = mkIOError ResourceVanished "IOCtx closed" Nothing Nothing
+  where
+    closed = mkIOError ResourceVanished "IOCtx closed" Nothing Nothing
+    guardPinned mba = do
+      unless (isMutableByteArrayPinned mba) $ throwIO notPinned
+    notPinned = mkIOError InvalidArgument "MutableByteArray is unpinned" Nothing Nothing
 
 data IOBatch = IOBatch {
                  iobatchIx         :: !IOBatchIx,
                  iobatchOpCount    :: !Word32,
-                 iobatchCompletion :: MVar (UArray IOOpIx Int32)
+                 iobatchCompletion :: MVar (UArray IOOpIx Int32),
+                 -- | The list of I\/O operations is sent to the completion
+                 -- thread so that the buffers are kept alive while the kernel
+                 -- is using them.
+                 iobatchKeepAlives :: [IOOp IO]
                }
 
 newtype IOBatchIx = IOBatchIx Word32
@@ -286,14 +305,16 @@ completionThread uring done maxc qsem chaniobatch chaniobatchix = do
     counts      <- newArray iobatchixBounds (-1)
     results     <- newArray iobatchixBounds invalidEntry
     completions <- newArray iobatchixBounds invalidEntry
-    collectCompletion counts results completions
+    keepAlives  <- newArray iobatchixBounds invalidEntry
+    collectCompletion counts results completions keepAlives
       `finally` putMVar done ()
   where
     collectCompletion :: IOUArray IOBatchIx Int
                       -> IOArray  IOBatchIx (IOUArray IOOpIx Int32)
                       -> IOArray  IOBatchIx (MVar (UArray IOOpIx Int32))
+                      -> IOArray  IOBatchIx [IOOp IO]
                       -> IO ()
-    collectCompletion counts results completions = do
+    collectCompletion counts results completions keepAlives = do
       iocompletion <- URing.awaitIO uring
       let (URing.IOCompletion ioopid iores) = iocompletion
       unless (ioopid == URing.IOOpId maxBound) $ do
@@ -311,12 +332,13 @@ completionThread uring done maxc qsem chaniobatch chaniobatchix = do
           writeArray counts      iobatchix (-1)
           writeArray results     iobatchix invalidEntry
           writeArray completions iobatchix invalidEntry
+          writeArray keepAlives  iobatchix invalidEntry
           result' <- freeze result
           putMVar completion (result' :: UArray IOOpIx Int32)
           writeChan chaniobatchix iobatchix
           let !qrelease = rangeSize (bounds result')
           signalQSemN qsem qrelease
-        collectCompletion counts results completions
+        collectCompletion counts results completions keepAlives
 
       -- wait for single IO result
       -- if the count is positive, decrement and update result array
@@ -330,7 +352,8 @@ completionThread uring done maxc qsem chaniobatch chaniobatchix = do
           IOBatch{
               iobatchIx,
               iobatchOpCount,
-              iobatchCompletion
+              iobatchCompletion,
+              iobatchKeepAlives
             } <- readChan chaniobatch
           oldcount <- readArray counts iobatchIx
           assert (oldcount == (-1)) (return ())
@@ -338,6 +361,7 @@ completionThread uring done maxc qsem chaniobatch chaniobatchix = do
           result <- newArray (IOOpIx 0, IOOpIx (iobatchOpCount-1)) (-1)
           writeArray results iobatchIx result
           writeArray completions iobatchIx iobatchCompletion
+          writeArray keepAlives iobatchIx iobatchKeepAlives
           if iobatchIx == iobatchixNeeded
             then return $! fromIntegral iobatchOpCount
             else collectIOBatches iobatchixNeeded
