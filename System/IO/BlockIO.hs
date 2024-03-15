@@ -45,7 +45,7 @@ import Control.Concurrent.Chan
 import Control.Exception (mask_, throw, ArrayException(UndefinedElement),
                           finally, assert, throwIO)
 import System.IO.Error
-import GHC.IO.Exception (IOErrorType(ResourceVanished))
+import GHC.IO.Exception (IOErrorType(ResourceVanished, InvalidArgument))
 
 import Foreign.Ptr
 import Foreign.C.Error (Errno(..))
@@ -143,6 +143,9 @@ closeIOCtx IOCtx {ioctxURing, ioctxCloseSync} = do
         URing.closeURing uring
         putMVar ioctxURing Nothing
 
+-- | The 'MutableByteArray' buffers within __must__ be pinned. Addresses into
+-- these buffers are passed to @io_uring@, and the buffers must therefore not be
+-- moved around.
 data IOOp m = IOOpRead  !Fd !FileOffset !(MutableByteArray (PrimState m)) !Int !ByteCount
             | IOOpWrite !Fd !FileOffset !(MutableByteArray (PrimState m)) !Int !ByteCount
 
@@ -235,11 +238,13 @@ submitIO IOCtx {
         sequence_
           [ --print ioop >>
             case ioop of
-            IOOpRead  fd off buf bufOff cnt ->
+            IOOpRead  fd off buf bufOff cnt -> do
+              guardPinned buf
               URing.prepareRead  uring fd off
                                  (mutableByteArrayContents buf `plusPtr` bufOff)
                                  cnt ioopid
-            IOOpWrite fd off buf bufOff cnt ->
+            IOOpWrite fd off buf bufOff cnt -> do
+              guardPinned buf
               URing.prepareWrite uring fd off
                                  (mutableByteArrayContents buf `plusPtr` bufOff)
                                  cnt ioopid
@@ -248,7 +253,11 @@ submitIO IOCtx {
         URing.submitIO uring
 --      print ("submitIO", "submitting done")
     map (IOResult_ . coerce) . elems <$> takeMVar iobatchCompletion
-  where closed = mkIOError ResourceVanished "IOCtx closed" Nothing Nothing
+  where
+    closed = mkIOError ResourceVanished "IOCtx closed" Nothing Nothing
+    guardPinned mba = do
+      unless (isMutableByteArrayPinned mba) $ throwIO notPinned
+    notPinned = mkIOError InvalidArgument "MutableByteArray is unpinned" Nothing Nothing
 
 data IOBatch = IOBatch {
                  iobatchIx         :: !IOBatchIx,
