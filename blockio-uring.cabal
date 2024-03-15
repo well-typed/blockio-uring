@@ -40,9 +40,10 @@ library
     System.IO.BlockIO.URingFFI
 
   build-depends:
-    , array  ^>=0.5
-    , base   >=4.16 && <4.20
-    , unix   ^>=2.8
+    , array      ^>=0.5
+    , base       >=4.16 && <4.20
+    , primitive  ^>=0.9
+    , unix       ^>=2.8
 
   pkgconfig-depends: liburing
   default-language:  Haskell2010
@@ -58,6 +59,7 @@ benchmark bench
     , async
     , base
     , containers
+    , primitive
     , random
     , time
     , unix
