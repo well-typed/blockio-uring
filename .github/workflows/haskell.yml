@@ -24,7 +24,21 @@ jobs:
       matrix:
         ghc: ["9.2.8", "9.4.8", "9.6.4", "9.8.2"]
         cabal: ["3.10.2.1"]
-        os: [ubuntu-latest]
+        os: [ubuntu-latest] # ubuntu-latest = ubuntu-22.04
+        liburing: ["liburing-2.5"]
+        include:
+        - ghc: "9.6.4"
+          cabal: "3.10.2.1"
+          os: ubuntu-20.04
+          liburing: "liburing-2.1"
+        - ghc: "9.6.4"
+          cabal: "3.10.2.1"
+          os: ubuntu-20.04
+          liburing: "liburing-2.5"
+        - ghc: "9.6.4"
+          cabal: "3.10.2.1"
+          os: ubuntu-22.04
+          liburing: "liburing-2.1"
 
     steps:
     - name: Checkout repository
@@ -48,7 +62,7 @@ jobs:
         cd tmp
         git clone https://github.com/axboe/liburing.git
         cd liburing
-        git checkout liburing-2.5
+        git checkout ${{ matrix.liburing }}
         ./configure --cc=gcc --cxx=g++
         make -j$(nproc)
         sudo make install
@@ -73,11 +87,10 @@ jobs:
         cache-name: cache-cabal-build
       with:
         path: ${{ steps.setup-haskell.outputs.cabal-store }}
-        key: ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-${{ hashFiles('**/cabal.project') }}
+        key: ${{ runner.os }}-${{ matrix.ghc }}-${{ matrix.liburing }}-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-${{ hashFiles('**/cabal.project') }}
         restore-keys: |
-          ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-${{ hashFiles('**/cabal.project') }}
-          ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-
-          ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-
+          ${{ runner.os }}-${{ matrix.ghc }}-${{ matrix.liburing }}-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-
+          ${{ runner.os }}-${{ matrix.ghc }}-${{ matrix.liburing }}-${{ env.cache-name }}-
 
     - name: Install cabal dependencies
       id: build-dependencies

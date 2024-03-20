@@ -36,8 +36,14 @@ data {-# CTYPE "liburing.h" "struct io_uring_sqe" #-} URingSQE
 foreign import capi unsafe "liburing.h io_uring_get_sqe"
   io_uring_get_sqe :: Ptr URing -> IO (Ptr URingSQE)
 
+#ifdef LIBURING_HAVE_DATA64
 foreign import capi unsafe "liburing.h io_uring_sqe_set_data64"
   io_uring_sqe_set_data :: Ptr URingSQE -> CULong -> IO ()
+#else
+io_uring_sqe_set_data :: Ptr URingSQE -> CULong -> IO ()
+io_uring_sqe_set_data p user_data =
+  do #{poke struct io_uring_cqe, user_data} p user_data
+#endif
 
 foreign import capi unsafe "liburing.h io_uring_prep_read"
   io_uring_prep_read :: Ptr URingSQE -> Fd -> Ptr Word8 -> CUInt -> CULong -> IO ()
