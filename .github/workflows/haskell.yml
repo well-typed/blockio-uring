@@ -39,6 +39,10 @@ jobs:
           cabal: "3.10.2.1"
           os: ubuntu-22.04
           liburing: "liburing-2.1"
+        - ghc: "9.6.4"
+          cabal: "3.10.2.1"
+          os: ubuntu-22.04
+          liburing: "system"
 
     steps:
     - name: Checkout repository
@@ -52,8 +56,9 @@ jobs:
         cabal-version: ${{ matrix.cabal }}
         cabal-update: true
 
-    - name: Install liburing (on Linux)
-      id: setup-liburing
+    - name: Install (specific) liburing from source
+      id: setup-liburing-source
+      if: ${{ ! (matrix.liburing == 'system') }}
       run: |
         sudo apt-get update
         sudo apt-get -y install pkg-config
@@ -69,6 +74,13 @@ jobs:
         cd ../..
         sudo rm -rf ./tmp
         pkg-config --modversion liburing
+
+    - name: Install (newest) liburing from a package manager
+      id: setup-liburing-cloned
+      if: ${{ matrix.liburing == 'system' }}
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install pkg-config liburing-dev
 
     - name: Configure the build
       run: |
