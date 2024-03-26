@@ -42,7 +42,7 @@ foreign import capi unsafe "liburing.h io_uring_sqe_set_data64"
 #else
 io_uring_sqe_set_data :: Ptr URingSQE -> CULong -> IO ()
 io_uring_sqe_set_data p user_data =
-  do #{poke struct io_uring_cqe, user_data} p user_data
+  do #{poke struct io_uring_sqe, user_data} p user_data
 #endif
 
 foreign import capi unsafe "liburing.h io_uring_prep_read"
