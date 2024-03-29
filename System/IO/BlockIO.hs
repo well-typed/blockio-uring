@@ -35,6 +35,7 @@ import Data.Array.IO
 import Data.Array.Unboxed
 import Data.Coerce
 import Data.Primitive.ByteArray
+import qualified Data.Vector as V
 
 import Control.Monad
 import Control.Monad.Primitive
@@ -210,7 +211,7 @@ viewIOError (IOResult_ e)
 --   the target depth, fill it up to double again. This way there is always
 --   at least the target number in flight at once.
 --
-submitIO :: IOCtx -> [IOOp IO] -> IO [IOResult]
+submitIO :: IOCtx -> V.Vector (IOOp IO) -> IO (V.Vector IOResult)
 submitIO IOCtx {
            ioctxQSemN,
            ioctxURing,
@@ -235,24 +236,24 @@ submitIO IOCtx {
       Nothing -> throwIO closed
       Just uring -> do
 --      print ("submitIO", iobatchOpCount)
-        sequence_
-          [ --print ioop >>
-            case ioop of
-            IOOpRead  fd off buf bufOff cnt -> do
-              guardPinned buf
-              URing.prepareRead  uring fd off
-                                 (mutableByteArrayContents buf `plusPtr` bufOff)
-                                 cnt ioopid
-            IOOpWrite fd off buf bufOff cnt -> do
-              guardPinned buf
-              URing.prepareWrite uring fd off
-                                 (mutableByteArrayContents buf `plusPtr` bufOff)
-                                 cnt ioopid
-          | (ioop, ioopix) <- zip ioops [IOOpIx 0 ..]
-          , let !ioopid = packIOOpId iobatchIx ioopix ]
+        V.iforM_ ioops $ \ioopix ioop ->
+            let !ioopid = packIOOpId iobatchIx (IOOpIx $ fromIntegral ioopix)
+            in
+              --print ioop >>
+              case ioop of
+              IOOpRead  fd off buf bufOff cnt -> do
+                guardPinned buf
+                URing.prepareRead  uring fd off
+                                  (mutableByteArrayContents buf `plusPtr` bufOff)
+                                  cnt ioopid
+              IOOpWrite fd off buf bufOff cnt -> do
+                guardPinned buf
+                URing.prepareWrite uring fd off
+                                  (mutableByteArrayContents buf `plusPtr` bufOff)
+                                  cnt ioopid
         URing.submitIO uring
 --      print ("submitIO", "submitting done")
-    map (IOResult_ . coerce) . elems <$> takeMVar iobatchCompletion
+    fmap (IOResult_ . coerce) . V.fromList . elems <$> takeMVar iobatchCompletion
   where
     closed = mkIOError ResourceVanished "IOCtx closed" Nothing Nothing
     guardPinned mba = do
@@ -266,7 +267,7 @@ data IOBatch = IOBatch {
                  -- | The list of I\/O operations is sent to the completion
                  -- thread so that the buffers are kept alive while the kernel
                  -- is using them.
-                 iobatchKeepAlives :: [IOOp IO]
+                 iobatchKeepAlives :: V.Vector (IOOp IO)
                }
 
 newtype IOBatchIx = IOBatchIx Word32
@@ -312,7 +313,7 @@ completionThread uring done maxc qsem chaniobatch chaniobatchix = do
     collectCompletion :: IOUArray IOBatchIx Int
                       -> IOArray  IOBatchIx (IOUArray IOOpIx Int32)
                       -> IOArray  IOBatchIx (MVar (UArray IOOpIx Int32))
-                      -> IOArray  IOBatchIx [IOOp IO]
+                      -> IOArray  IOBatchIx (V.Vector (IOOp IO))
                       -> IO ()
     collectCompletion counts results completions keepAlives = do
       iocompletion <- URing.awaitIO uring

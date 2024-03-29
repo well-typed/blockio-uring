@@ -21,6 +21,7 @@ import Data.Time
 import System.IO.BlockIO
 import System.IO.BlockIO.URing hiding (submitIO)
 import qualified System.IO.BlockIO.URing as URing
+import qualified Data.Vector as V
 
 main :: IO ()
 main = do
@@ -100,18 +101,16 @@ main_highlevel filename = do
                     ioctxBatchSizeLimit   = 64,
                     ioctxConcurrencyLimit = 64 * 4
                   }
-      blocks    = zip [0..] (randomPermute rng [0..lastBlock])
+      blocks    = V.fromList $ zip [0..] (randomPermute rng [0..lastBlock])
   bracket (initIOCtx params) closeIOCtx $ \ioctx -> do
     buf <- newPinnedByteArray (4096 * nbufs)
 
     before <- getCurrentTime
     forConcurrently_ (groupsOfN 32 blocks) $ \batch ->
-      submitIO ioctx
-        [ IOOpRead fd blockoff buf bufOff 4096
-        | (i, block) <- batch
-        , let bufOff  = (i `mod` nbufs) * 4096
-              blockoff = fromIntegral (block * 4096)
-        ]
+      submitIO ioctx $ flip fmap batch $ \ (i, block) ->
+        let bufOff  = (i `mod` nbufs) * 4096
+            blockoff = fromIntegral (block * 4096)
+        in  IOOpRead fd blockoff buf bufOff 4096
     after <- getCurrentTime
     let total   = lastBlock + 1
     report before after total
@@ -127,9 +126,9 @@ report before after total = do
     iops    :: Int
     iops = round (fromIntegral total / realToFrac elapsed :: Double)
 
-groupsOfN :: Int -> [a] -> [[a]]
-groupsOfN _ [] = []
-groupsOfN n xs = take n xs : groupsOfN n (drop n xs)
+groupsOfN :: Int -> V.Vector a -> [V.Vector a]
+groupsOfN n xs | V.null xs = []
+               | otherwise = V.take n xs : groupsOfN n (V.drop n xs)
 
 randomPermute :: Ord a => StdGen -> [a] -> [a]
 randomPermute rng0 xs0 =

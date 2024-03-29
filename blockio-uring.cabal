@@ -41,9 +41,10 @@ library
 
   build-depends:
     , array      ^>=0.5
-    , base       >=4.16 && <4.20
+    , base       >=4.16  && <4.20
     , primitive  ^>=0.9
     , unix       ^>=2.8
+    , vector     ^>=0.13
 
   pkgconfig-depends: liburing >=2.0 && <2.7
   default-language:  Haskell2010
@@ -62,6 +63,7 @@ benchmark bench
     , primitive
     , random
     , time
+    , vector
     , unix
 
   pkgconfig-depends: liburing
@@ -82,6 +84,7 @@ test-suite test
     , base         >=4.16 && <4.20
     , primitive
     , tasty
+    , vector
     , tasty-hunit
 
   pkgconfig-depends: liburing
