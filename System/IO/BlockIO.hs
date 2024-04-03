@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE LambdaCase #-}
 
@@ -40,7 +41,9 @@ import GHC.IO.Exception (IOErrorType(ResourceVanished, InvalidArgument))
 import Foreign.Ptr (plusPtr)
 import Foreign.C.Error (Errno(..))
 import System.Posix.Types (Fd, FileOffset, ByteCount)
+#if MIN_VERSION_base(4,16,0)
 import System.Posix.Internals (hostIsThreaded)
+#endif
 
 import qualified System.IO.BlockIO.URing as URing
 import           System.IO.BlockIO.URing (IOResult(..))
@@ -86,7 +89,9 @@ defaultIOCtxParams =
 
 initIOCtx :: IOCtxParams -> IO IOCtx
 initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
+#if MIN_VERSION_base(4,16,0)
     unless hostIsThreaded $ throwIO rtrsNotThreaded
+#endif
     mask_ $ do
       ioctxQSemN         <- newQSemN ioctxConcurrencyLimit
       uring              <- URing.setupURing (URing.URingParams ioctxBatchSizeLimit)
@@ -112,6 +117,7 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
         ioctxChanIOBatchIx,
         ioctxCloseSync
       }
+#if MIN_VERSION_base(4,16,0)
   where
     rtrsNotThreaded =
         mkIOError
@@ -119,6 +125,7 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
           "The run-time system should be threaded, make sure you are passing the -threaded flag"
           Nothing
           Nothing
+#endif
 
 closeIOCtx :: IOCtx -> IO ()
 closeIOCtx IOCtx {ioctxURing, ioctxCloseSync} = do

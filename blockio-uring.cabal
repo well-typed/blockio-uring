@@ -40,7 +40,7 @@ library
     System.IO.BlockIO.URingFFI
 
   build-depends:
-      base       >=4.16  && <4.20
+      base       >=4.12  && <4.20
     , primitive  ^>=0.9
     , vector     ^>=0.13
 
@@ -79,7 +79,7 @@ test-suite test
   main-is:           Main.hs
   build-depends:
     , array
-    , base         >=4.16 && <4.20
+    , base
     , primitive
     , tasty
     , vector
