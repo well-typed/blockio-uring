@@ -20,7 +20,6 @@ module System.IO.BlockIO (
   ) where
 
 import Data.Bits
-import Data.Coerce
 import Data.Primitive.ByteArray
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as VM
@@ -217,7 +216,7 @@ submitIO IOCtx {
                                   cnt ioopid
         URing.submitIO uring
 --      print ("submitIO", "submitting done")
-    coerce <$> takeMVar iobatchCompletion
+    takeMVar iobatchCompletion
   where
     closed = mkIOError ResourceVanished "IOCtx closed" Nothing Nothing
     guardPinned mba = do
