@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {- HLINT ignore "Use camelCase" -}
 
 module Main (main) where
@@ -36,7 +37,11 @@ main = do
 main_lowlevel :: FilePath -> IO ()
 main_lowlevel filename = do
   putStrLn "Low-level API benchmark"
+#if MIN_VERSION_unix(2,8,0)
   fd <- openFd filename ReadOnly defaultFileFlags
+#else
+  fd <- openFd filename ReadOnly Nothing defaultFileFlags
+#endif
   status <- getFdStatus fd
   let size      = fileSize status
       lastBlock :: Int
@@ -90,7 +95,11 @@ main_lowlevel filename = do
 main_highlevel :: FilePath -> IO ()
 main_highlevel filename = do
   putStrLn "High-level API benchmark"
+#if MIN_VERSION_unix(2,8,0)
   fd     <- openFd filename ReadOnly defaultFileFlags
+#else
+  fd     <- openFd filename ReadOnly Nothing defaultFileFlags
+#endif
   status <- getFdStatus fd
   rng    <- initStdGen
   let size      = fileSize status
