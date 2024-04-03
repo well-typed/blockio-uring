@@ -60,7 +60,7 @@ main_lowlevel filename = do
           collectBatch n =
             replicateM_ n $ do
               (IOCompletion i count) <- awaitIO uring
-              when (count /= 4096) $
+              when (count /= IOResult 4096) $
                 fail $ "I/O failure: I/O " ++ show i
                     ++ " returned " ++ show count
 

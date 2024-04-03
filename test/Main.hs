@@ -33,7 +33,7 @@ example_simpleNoop n = do
     URing.submitIO uring
     completion <- awaitIO uring
     closeURing uring
-    IOCompletion (IOOpId n) 0 @=? completion
+    IOCompletion (IOOpId n) (IOResult 0) @=? completion
 
 deriving instance Eq IOCompletion
 deriving instance Show IOCompletion

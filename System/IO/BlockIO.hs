@@ -1,13 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 
 module System.IO.BlockIO (
 
@@ -26,16 +19,13 @@ module System.IO.BlockIO (
 
   ) where
 
-import Data.Word
-import Data.Int
 import Data.Bits
-import Data.Ix
-import Data.Array.IArray
-import Data.Array.IO
-import Data.Array.Unboxed
 import Data.Coerce
 import Data.Primitive.ByteArray
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as VM
+import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector.Unboxed.Mutable as VUM
 
 import Control.Monad
 import Control.Monad.Primitive
@@ -48,13 +38,13 @@ import Control.Exception (mask_, throw, ArrayException(UndefinedElement),
 import System.IO.Error
 import GHC.IO.Exception (IOErrorType(ResourceVanished, InvalidArgument))
 
-import Foreign.Ptr
+import Foreign.Ptr (plusPtr)
 import Foreign.C.Error (Errno(..))
-import Foreign.C.Types (CInt(..), CSize)
 import System.Posix.Types (Fd, FileOffset, ByteCount)
 import System.Posix.Internals (hostIsThreaded)
 
 import qualified System.IO.BlockIO.URing as URing
+import           System.IO.BlockIO.URing (IOResult(..))
 
 
 -- | IO context: a handle used by threads submitting IO batches.
@@ -114,8 +104,7 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
                ioctxChanIOBatch
                ioctxChanIOBatchIx
       let initialBatchIxs :: [IOBatchIx]
-          initialBatchIxs =
-            [IOBatchIx 0 .. IOBatchIx (fromIntegral (ioctxConcurrencyLimit-1))]
+          initialBatchIxs = [0 .. ioctxConcurrencyLimit-1]
       writeList2Chan ioctxChanIOBatchIx initialBatchIxs
       return IOCtx {
         ioctxQSemN,
@@ -149,30 +138,6 @@ closeIOCtx IOCtx {ioctxURing, ioctxCloseSync} = do
 -- moved around.
 data IOOp m = IOOpRead  !Fd !FileOffset !(MutableByteArray (PrimState m)) !Int !ByteCount
             | IOOpWrite !Fd !FileOffset !(MutableByteArray (PrimState m)) !Int !ByteCount
-
-newtype IOResult = IOResult_ URing.IOResult
-
-{-# COMPLETE IOResult, IOError #-}
-
-pattern IOResult :: ByteCount -> IOResult
-pattern IOResult c <- (viewIOResult -> Just c)
-  where
-    IOResult count = IOResult_ ((fromIntegral :: CSize -> CInt) count)
-
-pattern IOError :: Errno -> IOResult
-pattern IOError e <- (viewIOError -> Just e)
-  where
-    IOError (Errno e) = IOResult_ (-e)
-
-viewIOResult :: IOResult -> Maybe ByteCount
-viewIOResult (IOResult_ c)
-  | c >= 0    = Just ((fromIntegral :: CInt -> CSize) c)
-  | otherwise = Nothing
-
-viewIOError  :: IOResult -> Maybe Errno
-viewIOError (IOResult_ e)
-  | e < 0     = Just (Errno e)
-  | otherwise = Nothing
 
 
 -- | Submit a batch of I\/O operations, and wait for them all to complete.
@@ -211,7 +176,7 @@ viewIOError (IOResult_ e)
 --   the target depth, fill it up to double again. This way there is always
 --   at least the target number in flight at once.
 --
-submitIO :: IOCtx -> V.Vector (IOOp IO) -> IO (V.Vector IOResult)
+submitIO :: IOCtx -> V.Vector (IOOp IO) -> IO (VU.Vector IOResult)
 submitIO IOCtx {
            ioctxQSemN,
            ioctxURing,
@@ -219,9 +184,8 @@ submitIO IOCtx {
            ioctxChanIOBatchIx
          }
          ioops = do
-    let iobatchOpCount :: Word32
-        !iobatchOpCount = fromIntegral (length ioops)
-    waitQSemN ioctxQSemN (fromIntegral iobatchOpCount)
+    let !iobatchOpCount = V.length ioops
+    waitQSemN ioctxQSemN iobatchOpCount
     iobatchIx         <- readChan ioctxChanIOBatchIx
     iobatchCompletion <- newEmptyMVar
     let iobatchKeepAlives = ioops
@@ -237,7 +201,7 @@ submitIO IOCtx {
       Just uring -> do
 --      print ("submitIO", iobatchOpCount)
         V.iforM_ ioops $ \ioopix ioop ->
-            let !ioopid = packIOOpId iobatchIx (IOOpIx $ fromIntegral ioopix)
+            let !ioopid = packIOOpId iobatchIx ioopix
             in
               --print ioop >>
               case ioop of
@@ -253,7 +217,7 @@ submitIO IOCtx {
                                   cnt ioopid
         URing.submitIO uring
 --      print ("submitIO", "submitting done")
-    fmap (IOResult_ . coerce) . V.fromList . elems <$> takeMVar iobatchCompletion
+    coerce <$> takeMVar iobatchCompletion
   where
     closed = mkIOError ResourceVanished "IOCtx closed" Nothing Nothing
     guardPinned mba = do
@@ -262,36 +226,33 @@ submitIO IOCtx {
 
 data IOBatch = IOBatch {
                  iobatchIx         :: !IOBatchIx,
-                 iobatchOpCount    :: !Word32,
-                 iobatchCompletion :: MVar (UArray IOOpIx Int32),
+                 iobatchOpCount    :: !Int,
+                 iobatchCompletion :: MVar (VU.Vector IOResult),
                  -- | The list of I\/O operations is sent to the completion
                  -- thread so that the buffers are kept alive while the kernel
                  -- is using them.
                  iobatchKeepAlives :: V.Vector (IOOp IO)
                }
 
-newtype IOBatchIx = IOBatchIx Word32
-  deriving (Eq, Ord, Ix, Enum, Show)
-
-newtype IOOpIx = IOOpIx Word32
-  deriving (Eq, Ord, Ix, Enum, Show)
+type IOBatchIx = Int
+type IOOpIx    = Int
 
 {-# INLINE packIOOpId #-}
 packIOOpId :: IOBatchIx -> IOOpIx -> URing.IOOpId
-packIOOpId (IOBatchIx batchix) (IOOpIx opix) =
+packIOOpId batchix opix =
     URing.IOOpId $ unsafeShiftL (fromIntegral batchix) 32
                 .|. fromIntegral opix
 
 {-# INLINE unpackIOOpId #-}
 unpackIOOpId :: URing.IOOpId -> (IOBatchIx, IOOpIx)
 unpackIOOpId (URing.IOOpId w64) =
-    (IOBatchIx batchix, IOOpIx opix)
+    (batchix, opix)
   where
-    batchix :: Word32
+    batchix :: Int
     batchix = fromIntegral (unsafeShiftR w64 32)
 
-    opix :: Word32
-    opix    = fromIntegral w64
+    opix :: Int
+    opix    = fromIntegral (w64 .&. 0xffffffff)
 
 completionThread :: URing.URing
                  -> MVar ()
@@ -300,44 +261,42 @@ completionThread :: URing.URing
                  -> Chan IOBatch
                  -> Chan IOBatchIx
                  -> IO ()
-completionThread uring done maxc qsem chaniobatch chaniobatchix = do
-    let iobatchixBounds :: (IOBatchIx, IOBatchIx)
-        iobatchixBounds = (IOBatchIx 0, IOBatchIx (fromIntegral maxc-1))
-    counts      <- newArray iobatchixBounds (-1)
-    results     <- newArray iobatchixBounds invalidEntry
-    completions <- newArray iobatchixBounds invalidEntry
-    keepAlives  <- newArray iobatchixBounds invalidEntry
+completionThread !uring !done !maxc !qsem !chaniobatch !chaniobatchix = do
+    counts      <- VUM.replicate maxc (-1)
+    results     <- VM.replicate maxc invalidEntry
+    completions <- VM.replicate maxc invalidEntry
+    keepAlives  <- VM.replicate maxc invalidEntry
     collectCompletion counts results completions keepAlives
       `finally` putMVar done ()
   where
-    collectCompletion :: IOUArray IOBatchIx Int
-                      -> IOArray  IOBatchIx (IOUArray IOOpIx Int32)
-                      -> IOArray  IOBatchIx (MVar (UArray IOOpIx Int32))
-                      -> IOArray  IOBatchIx (V.Vector (IOOp IO))
+    collectCompletion :: VUM.MVector RealWorld Int
+                      -> VM.MVector  RealWorld (VUM.MVector RealWorld IOResult)
+                      -> VM.MVector  RealWorld (MVar (VU.Vector IOResult))
+                      -> VM.MVector  RealWorld (V.Vector (IOOp IO))
                       -> IO ()
-    collectCompletion counts results completions keepAlives = do
+    collectCompletion !counts !results !completions !keepAlives = do
       iocompletion <- URing.awaitIO uring
-      let (URing.IOCompletion ioopid iores) = iocompletion
+      let (URing.IOCompletion !ioopid !iores) = iocompletion
       unless (ioopid == URing.IOOpId maxBound) $ do
-        let (iobatchix, ioopix) = unpackIOOpId ioopid
+        let (!iobatchix, !ioopix) = unpackIOOpId ioopid
         count <- do
-          c <- readArray counts iobatchix
+          c <- VUM.read counts iobatchix
           if c < 0 then collectIOBatches iobatchix
                    else return c
         assert (count > 0) (return ())
-        writeArray counts iobatchix (count-1)
-        result <- readArray results iobatchix
-        writeArray result ioopix (coerce iores)
+        VUM.write counts iobatchix (count-1)
+        result <- VM.read results iobatchix
+        VUM.write result ioopix iores
         when (count == 1) $ do
-          completion <- readArray completions iobatchix
-          writeArray counts      iobatchix (-1)
-          writeArray results     iobatchix invalidEntry
-          writeArray completions iobatchix invalidEntry
-          writeArray keepAlives  iobatchix invalidEntry
-          result' <- freeze result
-          putMVar completion (result' :: UArray IOOpIx Int32)
+          completion <- VM.read completions iobatchix
+          VUM.write counts     iobatchix (-1)
+          VM.write results     iobatchix invalidEntry
+          VM.write completions iobatchix invalidEntry
+          VM.write keepAlives  iobatchix invalidEntry
+          result' <- VU.unsafeFreeze result
+          putMVar completion (result' :: VU.Vector IOResult)
           writeChan chaniobatchix iobatchix
-          let !qrelease = rangeSize (bounds result')
+          let !qrelease = VU.length result'
           signalQSemN qsem qrelease
         collectCompletion counts results completions keepAlives
 
@@ -349,20 +308,20 @@ completionThread uring done maxc qsem chaniobatch chaniobatchix = do
       -- reset count to -1, and result entries to undefined
       where
         collectIOBatches :: IOBatchIx -> IO Int
-        collectIOBatches iobatchixNeeded = do
+        collectIOBatches !iobatchixNeeded = do
           IOBatch{
               iobatchIx,
               iobatchOpCount,
               iobatchCompletion,
               iobatchKeepAlives
             } <- readChan chaniobatch
-          oldcount <- readArray counts iobatchIx
+          oldcount <- VUM.read counts iobatchIx
           assert (oldcount == (-1)) (return ())
-          writeArray counts iobatchIx (fromIntegral iobatchOpCount)
-          result <- newArray (IOOpIx 0, IOOpIx (iobatchOpCount-1)) (-1)
-          writeArray results iobatchIx result
-          writeArray completions iobatchIx iobatchCompletion
-          writeArray keepAlives iobatchIx iobatchKeepAlives
+          VUM.write counts iobatchIx (fromIntegral iobatchOpCount)
+          result <- VUM.replicate iobatchOpCount (IOResult (-1))
+          VM.write results iobatchIx result
+          VM.write completions iobatchIx iobatchCompletion
+          VM.write keepAlives iobatchIx iobatchKeepAlives
           if iobatchIx == iobatchixNeeded
             then return $! fromIntegral iobatchOpCount
             else collectIOBatches iobatchixNeeded
