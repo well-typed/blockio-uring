@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {- HLINT ignore "Use camelCase" -}
 
 module Main (main) where
@@ -21,6 +22,7 @@ import Data.Time
 import System.IO.BlockIO
 import System.IO.BlockIO.URing hiding (submitIO)
 import qualified System.IO.BlockIO.URing as URing
+import qualified Data.Vector as V
 
 main :: IO ()
 main = do
@@ -35,7 +37,11 @@ main = do
 main_lowlevel :: FilePath -> IO ()
 main_lowlevel filename = do
   putStrLn "Low-level API benchmark"
+#if MIN_VERSION_unix(2,8,0)
   fd <- openFd filename ReadOnly defaultFileFlags
+#else
+  fd <- openFd filename ReadOnly Nothing defaultFileFlags
+#endif
   status <- getFdStatus fd
   let size      = fileSize status
       lastBlock :: Int
@@ -59,7 +65,7 @@ main_lowlevel filename = do
           collectBatch n =
             replicateM_ n $ do
               (IOCompletion i count) <- awaitIO uring
-              when (count /= 4096) $
+              when (count /= IOResult 4096) $
                 fail $ "I/O failure: I/O " ++ show i
                     ++ " returned " ++ show count
 
@@ -89,7 +95,11 @@ main_lowlevel filename = do
 main_highlevel :: FilePath -> IO ()
 main_highlevel filename = do
   putStrLn "High-level API benchmark"
+#if MIN_VERSION_unix(2,8,0)
   fd     <- openFd filename ReadOnly defaultFileFlags
+#else
+  fd     <- openFd filename ReadOnly Nothing defaultFileFlags
+#endif
   status <- getFdStatus fd
   rng    <- initStdGen
   let size      = fileSize status
@@ -100,18 +110,16 @@ main_highlevel filename = do
                     ioctxBatchSizeLimit   = 64,
                     ioctxConcurrencyLimit = 64 * 4
                   }
-      blocks    = zip [0..] (randomPermute rng [0..lastBlock])
+      blocks    = V.fromList $ zip [0..] (randomPermute rng [0..lastBlock])
   bracket (initIOCtx params) closeIOCtx $ \ioctx -> do
     buf <- newPinnedByteArray (4096 * nbufs)
 
     before <- getCurrentTime
     forConcurrently_ (groupsOfN 32 blocks) $ \batch ->
-      submitIO ioctx
-        [ IOOpRead fd blockoff buf bufOff 4096
-        | (i, block) <- batch
-        , let bufOff  = (i `mod` nbufs) * 4096
-              blockoff = fromIntegral (block * 4096)
-        ]
+      submitIO ioctx $ flip fmap batch $ \ (i, block) ->
+        let bufOff  = (i `mod` nbufs) * 4096
+            blockoff = fromIntegral (block * 4096)
+        in  IOOpRead fd blockoff buf bufOff 4096
     after <- getCurrentTime
     let total   = lastBlock + 1
     report before after total
@@ -127,9 +135,9 @@ report before after total = do
     iops    :: Int
     iops = round (fromIntegral total / realToFrac elapsed :: Double)
 
-groupsOfN :: Int -> [a] -> [[a]]
-groupsOfN _ [] = []
-groupsOfN n xs = take n xs : groupsOfN n (drop n xs)
+groupsOfN :: Int -> V.Vector a -> [V.Vector a]
+groupsOfN n xs | V.null xs = []
+               | otherwise = V.take n xs : groupsOfN n (V.drop n xs)
 
 randomPermute :: Ord a => StdGen -> [a] -> [a]
 randomPermute rng0 xs0 =

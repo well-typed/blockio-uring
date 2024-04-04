@@ -1,7 +1,35 @@
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
-module System.IO.BlockIO.URing where
+module System.IO.BlockIO.URing (
+    URing,
+    URingParams(..),
+    setupURing,
+    closeURing,
+    withURing,
+    IOOpId(..),
+    prepareRead,
+    prepareWrite,
+    prepareNop,
+    submitIO,
+    IOCompletion(..),
+    IOResult(IOResult, IOError),
+    awaitIO,
+  ) where
+
+import qualified Data.Vector.Generic as VG
+import qualified Data.Vector.Generic.Mutable as VGM
+import qualified Data.Vector.Primitive as VP
+import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector.Unboxed.Mutable as VUM
+import qualified Data.Vector.Unboxed.Base
 
 import Foreign
 import Foreign.C
@@ -81,11 +109,53 @@ submitIO (URing uringptr) =
 
 
 --
--- Completing I/O
+-- Types for completing I/O
 --
 
 data IOCompletion = IOCompletion !IOOpId !IOResult
-type IOResult = CInt
+
+newtype IOResult = IOResult_ Int
+  deriving (Eq, Show)
+
+{-# COMPLETE IOResult, IOError #-}
+
+pattern IOResult :: ByteCount -> IOResult
+pattern IOResult c <- (viewIOResult -> Just c)
+  where
+    IOResult count = IOResult_ ((fromIntegral :: CSize -> Int) count)
+
+pattern IOError :: Errno -> IOResult
+pattern IOError e <- (viewIOError -> Just e)
+  where
+    IOError (Errno e) = IOResult_ (fromIntegral (-e))
+
+viewIOResult :: IOResult -> Maybe ByteCount
+viewIOResult (IOResult_ c)
+  | c >= 0    = Just ((fromIntegral :: Int -> CSize) c)
+  | otherwise = Nothing
+
+viewIOError  :: IOResult -> Maybe Errno
+viewIOError (IOResult_ e)
+  | e < 0     = Just (Errno (fromIntegral e))
+  | otherwise = Nothing
+
+
+--
+-- Unboxed vector support for IOResult
+--
+
+newtype instance VUM.MVector s IOResult = MV_IOResult (VP.MVector s Int)
+newtype instance VU.Vector     IOResult = V_IOResult  (VP.Vector    Int)
+
+deriving newtype instance VGM.MVector VUM.MVector IOResult
+deriving newtype instance VG.Vector   VU.Vector   IOResult
+
+instance VU.Unbox IOResult
+
+
+--
+-- Completing I/O
+--
 
 awaitIO :: URing -> IO IOCompletion
 awaitIO (URing uringptr) =
@@ -105,8 +175,8 @@ awaitIO (URing uringptr) =
       cqeptr <- peek cqeptrptr
       FFI.URingCQE { FFI.cqe_data, FFI.cqe_res } <- peek cqeptr
       FFI.io_uring_cqe_seen uringptr cqeptr
-      let !opid = IOOpId (fromIntegral cqe_data)
-          !res  = fromIntegral cqe_res
+      let opid = IOOpId (fromIntegral cqe_data)
+          res  = IOResult_ (fromIntegral cqe_res)
       return $! IOCompletion opid res
 
 
