@@ -20,6 +20,7 @@ tests = testGroup "test"
     , testCase "example_initReadClose 32" $ example_initReadClose 32
     , testCase "example_initReadClose 96" $ example_initReadClose 96
     , testCase "example_initReadClose 200" $ example_initReadClose 200
+    , testCase "example_initEmptyClose" example_initEmptyClose
     , testCase "example_closeIsIdempotent" example_closeIsIdempotent
     ]
 
@@ -37,6 +38,12 @@ example_initReadClose size = do
         mba <- P.newPinnedByteArray 10 -- TODO: shouldn't use the same array for all ops :)
         submitIO ctx $ V.replicate size $
             IOOpRead fd 0 mba 0 10
+    closeIOCtx ctx
+
+example_initEmptyClose :: Assertion
+example_initEmptyClose = do
+    ctx <- initIOCtx defaultIOCtxParams
+    _ <- submitIO ctx V.empty
     closeIOCtx ctx
 
 example_closeIsIdempotent :: Assertion
