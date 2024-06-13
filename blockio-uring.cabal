@@ -35,12 +35,13 @@ source-repository head
 
 library
   exposed-modules:   System.IO.BlockIO
+  hs-source-dirs:    src
   other-modules:
     System.IO.BlockIO.URing
     System.IO.BlockIO.URingFFI
 
   build-depends:
-      base       >=4.12  && <4.20
+    , base       >=4.12  && <4.20
     , primitive  ^>=0.9
     , vector     ^>=0.13
 
@@ -51,7 +52,7 @@ library
 benchmark bench
   default-language:  Haskell2010
   type:              exitcode-stdio-1.0
-  hs-source-dirs:    benchmark .
+  hs-source-dirs:    benchmark src
   main-is:           Bench.hs
   build-depends:
     , array
@@ -61,8 +62,8 @@ benchmark bench
     , primitive
     , random
     , time
-    , vector
     , unix
+    , vector
 
   pkgconfig-depends: liburing
   other-modules:
@@ -73,17 +74,33 @@ benchmark bench
   ghc-options:       -Wall -threaded
 
 test-suite test
+  default-language: Haskell2010
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          test.hs
+  build-depends:
+    , array
+    , base
+    , blockio-uring
+    , primitive
+    , tasty
+    , tasty-hunit
+    , vector
+
+  ghc-options:      -threaded
+
+test-suite test-internals
   default-language:  Haskell2010
   type:              exitcode-stdio-1.0
-  hs-source-dirs:    test .
-  main-is:           Main.hs
+  hs-source-dirs:    test src
+  main-is:           test-internals.hs
   build-depends:
     , array
     , base
     , primitive
     , tasty
-    , vector
     , tasty-hunit
+    , vector
 
   pkgconfig-depends: liburing
   other-modules:
