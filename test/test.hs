@@ -17,7 +17,9 @@ main = defaultMain tests
 tests :: TestTree
 tests = testGroup "test"
     [ testCase "example_initClose" example_initClose
-    , testCase "example_initReadClose" example_initReadClose
+    , testCase "example_initReadClose 32" $ example_initReadClose 32
+    , testCase "example_initReadClose 96" $ example_initReadClose 96
+    , testCase "example_initReadClose 200" $ example_initReadClose 200
     , testCase "example_closeIsIdempotent" example_closeIsIdempotent
     ]
 
@@ -26,14 +28,14 @@ example_initClose = do
     ctx <- initIOCtx defaultIOCtxParams
     closeIOCtx ctx
 
-example_initReadClose :: Assertion
-example_initReadClose = do
+example_initReadClose :: Int -> Assertion
+example_initReadClose size = do
     ctx <- initIOCtx defaultIOCtxParams
     withFile "blockio-uring.cabal" ReadMode $ \hdl -> do
         -- handleToFd is available since base-4.16.0.0
         FD { fdFD = fromIntegral -> fd } <- handleToFd hdl
         mba <- P.newPinnedByteArray 10 -- TODO: shouldn't use the same array for all ops :)
-        submitIO ctx $ V.replicate 96 $
+        submitIO ctx $ V.replicate size $
             IOOpRead fd 0 mba 0 10
     closeIOCtx ctx
 
