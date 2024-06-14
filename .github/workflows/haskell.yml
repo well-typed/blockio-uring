@@ -44,6 +44,8 @@ jobs:
           os: ubuntu-22.04
           liburing: "system"
 
+    timeout-minutes: 30
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
@@ -121,6 +123,10 @@ jobs:
 
     - name: Build
       run: cabal build all
+
+    - name: Set test timeout
+      run: |
+        echo "TASTY_TIMEOUT=5m" >> "$GITHUB_ENV"
 
     - name: Run tests
       run: cabal test -j1 --test-show-details=direct all
