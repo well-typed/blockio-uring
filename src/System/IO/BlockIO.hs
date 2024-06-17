@@ -52,6 +52,9 @@ import           System.IO.BlockIO.URing (IOResult(..))
 -- | IO context: a handle used by threads submitting IO batches.
 --
 data IOCtx = IOCtx {
+               -- | This is initialised from the 'ioctxBatchSizeLimit' from the 'IOCtxParams'.
+               ioctxBatchSizeLimit' :: !Int,
+
                -- | IO concurrency control: used by writers to reserve the
                -- right to submit an IO batch of a given size, and by the
                -- completion thread to return it on batch completion.
@@ -111,6 +114,7 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
           initialBatchIxs = [0 .. ioctxConcurrencyLimit-1]
       writeList2Chan ioctxChanIOBatchIx initialBatchIxs
       return IOCtx {
+        ioctxBatchSizeLimit' = ioctxBatchSizeLimit,
         ioctxQSemN,
         ioctxURing,
         ioctxChanIOBatch,
@@ -184,33 +188,67 @@ data IOOp m = IOOpRead  !Fd !FileOffset !(MutableByteArray (PrimState m)) !Int !
 --
 submitIO :: IOCtx -> V.Vector (IOOp IO) -> IO (VU.Vector IOResult)
 submitIO IOCtx {
+           ioctxBatchSizeLimit',
            ioctxQSemN,
            ioctxURing,
            ioctxChanIOBatch,
            ioctxChanIOBatchIx
          }
-         ioops = do
-    let !iobatchOpCount = V.length ioops
-    waitQSemN ioctxQSemN iobatchOpCount
-    iobatchIx         <- readChan ioctxChanIOBatchIx
-    iobatchCompletion <- newEmptyMVar
-    let iobatchKeepAlives = ioops
-    writeChan ioctxChanIOBatch
-              IOBatch {
-                iobatchIx,
-                iobatchOpCount,
-                iobatchCompletion,
-                iobatchKeepAlives
-              }
-    withMVar ioctxURing $ \case
-      Nothing -> throwIO closed
-      Just uring -> do
---      print ("submitIO", iobatchOpCount)
-        V.iforM_ ioops $ \ioopix ioop ->
-            let !ioopid = packIOOpId iobatchIx ioopix
-            in
-              --print ioop >>
-              case ioop of
+         ioops
+    | iobatchOpCount == 0 = return VU.empty
+
+    | iobatchOpCount > ioctxBatchSizeLimit' = do
+        -- create completion mvars for each sub-batch
+        batches <- forM (chunksOf ioctxBatchSizeLimit' ioops) $ \b -> do
+          iobatchCompletion <- newEmptyMVar
+          return (b, iobatchCompletion)
+
+        forM_ batches $ \(batch, iobatchCompletion) -> do
+          let !iobatchOpCount' = V.length batch
+          waitQSemN ioctxQSemN iobatchOpCount'
+          iobatchIx         <- readChan ioctxChanIOBatchIx
+          let iobatchKeepAlives = batch
+          writeChan ioctxChanIOBatch
+                    IOBatch {
+                      iobatchIx,
+                      iobatchOpCount = iobatchOpCount',
+                      iobatchCompletion,
+                      iobatchKeepAlives
+                    }
+
+          submitBatch iobatchIx batch
+
+        waitAndCombine batches
+
+    | otherwise = do
+        waitQSemN ioctxQSemN iobatchOpCount
+        iobatchIx         <- readChan ioctxChanIOBatchIx
+        iobatchCompletion <- newEmptyMVar
+        let iobatchKeepAlives = ioops
+        writeChan ioctxChanIOBatch
+                  IOBatch {
+                    iobatchIx,
+                    iobatchOpCount,
+                    iobatchCompletion,
+                    iobatchKeepAlives
+                  }
+        submitBatch iobatchIx ioops
+        takeMVar iobatchCompletion
+  where
+    !iobatchOpCount = V.length ioops
+
+    guardPinned mba = unless (isMutableByteArrayPinned mba) $ throwIO notPinned
+    closed    = mkIOError ResourceVanished "IOCtx closed" Nothing Nothing
+    notPinned = mkIOError InvalidArgument "MutableByteArray is unpinned" Nothing Nothing
+
+    {-# INLINE submitBatch #-}
+    submitBatch iobatchIx batch =
+      withMVar ioctxURing $ \case
+        Nothing -> throwIO closed
+        Just uring -> do
+          V.iforM_ batch $ \ioopix ioop ->
+            let !ioopid = packIOOpId iobatchIx ioopix in
+            case ioop of
               IOOpRead  fd off buf bufOff cnt -> do
                 guardPinned buf
                 URing.prepareRead  uring fd off
@@ -221,14 +259,16 @@ submitIO IOCtx {
                 URing.prepareWrite uring fd off
                                   (mutableByteArrayContents buf `plusPtr` bufOff)
                                   cnt ioopid
-        URing.submitIO uring
---      print ("submitIO", "submitting done")
-    takeMVar iobatchCompletion
-  where
-    closed = mkIOError ResourceVanished "IOCtx closed" Nothing Nothing
-    guardPinned mba = do
-      unless (isMutableByteArrayPinned mba) $ throwIO notPinned
-    notPinned = mkIOError InvalidArgument "MutableByteArray is unpinned" Nothing Nothing
+          URing.submitIO uring
+
+    waitAndCombine :: [(a, MVar (VU.Vector IOResult))]
+                   -> IO (VU.Vector IOResult)
+    waitAndCombine xs = VU.concat <$!> forM xs (takeMVar . snd)
+
+chunksOf :: Int -> V.Vector a -> [V.Vector a]
+chunksOf n xs
+    | V.length xs == 0 = []
+    | otherwise        = V.take n xs : chunksOf n (V.drop n xs)
 
 data IOBatch = IOBatch {
                  iobatchIx         :: !IOBatchIx,
