@@ -14,10 +14,12 @@ import Foreign
 import System.Posix.IO
 import System.Posix.Files
 
-import System.Random
+import System.Random as Random
 import System.Environment
 import System.Exit
+import System.Mem (performMajorGC)
 import Data.Time
+import qualified GHC.Stats as RTS
 
 import System.IO.BlockIO
 import System.IO.BlockIO.URing hiding (submitIO)
@@ -81,15 +83,13 @@ main_lowlevel filename = do
 
       rng <- initStdGen
       let blocks = zip [0..] (randomPermute rng [0..lastBlock])
-          total  = lastBlock + 1
+          totalOps = lastBlock + 1
           (leadIn, blocks') = splitAt 64 blocks
 
-      before <- getCurrentTime
-      submitBatch leadIn
-      go blocks'
-      collectBatch 64
-      after <- getCurrentTime
-      report before after total
+      withReport totalOps $ do
+        submitBatch leadIn
+        go blocks'
+        collectBatch 64
 
 
 main_highlevel :: FilePath -> IO ()
@@ -108,29 +108,42 @@ main_highlevel filename = do
       nbufs     = ioctxConcurrencyLimit params
       params    = defaultIOCtxParams
       blocks    = V.fromList $ zip [0..] (randomPermute rng [0..lastBlock])
+      totalOps  = lastBlock + 1
   bracket (initIOCtx params) closeIOCtx $ \ioctx -> do
     buf <- newAlignedPinnedByteArray (4096 * nbufs) 4096
 
-    before <- getCurrentTime
-    forConcurrently_ (groupsOfN 32 blocks) $ \batch ->
-      submitIO ioctx $ flip fmap batch $ \ (i, block) ->
-        let bufOff  = (i `mod` nbufs) * 4096
-            blockoff = fromIntegral (block * 4096)
-        in  IOOpRead fd blockoff buf bufOff 4096
-    after <- getCurrentTime
-    let total   = lastBlock + 1
-    report before after total
+    withReport totalOps $
+      forConcurrently_ (groupsOfN 32 blocks) $ \batch ->
+        submitIO ioctx $ flip fmap batch $ \ (i, block) ->
+          let bufOff  = (i `mod` nbufs) * 4096
+              blockoff = fromIntegral (block * 4096)
+          in  IOOpRead fd blockoff buf bufOff 4096
 
-report :: UTCTime -> UTCTime -> Int -> IO ()
-report before after total = do
-    putStrLn $ "Total I/O ops: " ++ show total
-    putStrLn $ "Elapsed time:  " ++ show elapsed
-    putStrLn $ "IOPS:          " ++ show iops
+withReport :: Int -> IO () -> IO ()
+withReport totalOps action = do
+    performMajorGC
+    beforeRTS  <- RTS.getRTSStats
+    beforeTime <- getCurrentTime
+    action
+    afterTime <- getCurrentTime
+    performMajorGC
+    afterRTS  <- RTS.getRTSStats
+    report beforeTime afterTime beforeRTS afterRTS totalOps
+
+report :: UTCTime -> UTCTime -> RTS.RTSStats -> RTS.RTSStats -> Int -> IO ()
+report beforeTime afterTime beforeRTS afterRTS totalOps = do
+    putStrLn $ "Total I/O ops:   " ++ show totalOps
+    putStrLn $ "Elapsed time:    " ++ show elapsed
+    putStrLn $ "IOPS:            " ++ show iops
+    putStrLn $ "Allocated total: " ++ show allocated
+    putStrLn $ "Allocated per:   " ++ show apio
   where
-    elapsed = after `diffUTCTime` before
+    elapsed   = afterTime `diffUTCTime` beforeTime
+    allocated = RTS.allocated_bytes afterRTS - RTS.allocated_bytes beforeRTS
 
-    iops    :: Int
-    iops = round (fromIntegral total / realToFrac elapsed :: Double)
+    iops, apio :: Int
+    iops = round (fromIntegral totalOps / realToFrac elapsed :: Double)
+    apio = round (fromIntegral allocated / realToFrac totalOps :: Double)
 
 groupsOfN :: Int -> V.Vector a -> [V.Vector a]
 groupsOfN n xs | V.null xs = []
