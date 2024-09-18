@@ -96,6 +96,7 @@ main_lowlevel filename = do
         collectBatch 64
 
 
+{-# NOINLINE main_highlevel #-}
 main_highlevel :: FilePath -> IO ()
 main_highlevel filename = do
   putStrLn "High-level API benchmark"
@@ -129,6 +130,7 @@ main_highlevel filename = do
       _ <- Async.waitAnyCancel tasks
       return ()
 
+{-# NOINLINE generateIOOpsBatch #-}
 generateIOOpsBatch :: Posix.Fd
                    -> MutableByteArray RealWorld
                    -> Int
@@ -150,6 +152,7 @@ generateIOOpsBatch !fd !buf !lastBlock !size !rng0 =
       VM.unsafeWrite v i $! IOOpRead fd blockoff buf bufOff 4096
       go v rng' (i+1)
 
+{-# INLINE forRngSplitM_ #-}
 forRngSplitM_ :: Monad m => Int -> Random.StdGen -> (Random.StdGen -> m a) -> m ()
 forRngSplitM_ n rng0 action = go n rng0
   where
@@ -157,6 +160,7 @@ forRngSplitM_ n rng0 action = go n rng0
     go !i !rng = let (!rng', !rng'') = Random.split rng
                   in action rng' >> go (i-1) rng''
 
+{-# INLINE forRngSplitM #-}
 forRngSplitM :: Monad m => Int -> Random.StdGen -> (Random.StdGen -> m a) -> m [a]
 forRngSplitM n rng0 action = go [] n rng0
   where
@@ -164,6 +168,7 @@ forRngSplitM n rng0 action = go [] n rng0
     go acc !i !rng = let (!rng', !rng'') = Random.split rng
                       in action rng' >>= \x -> go (x:acc) (i-1) rng''
 
+{-# INLINE withReport #-}
 withReport :: Int -> IO () -> IO ()
 withReport totalOps action = do
     performMajorGC
@@ -175,6 +180,7 @@ withReport totalOps action = do
     afterRTS  <- RTS.getRTSStats
     report beforeTime afterTime beforeRTS afterRTS totalOps
 
+{-# NOINLINE report #-}
 report :: UTCTime -> UTCTime -> RTS.RTSStats -> RTS.RTSStats -> Int -> IO ()
 report beforeTime afterTime beforeRTS afterRTS totalOps = do
     putStrLn $ "Total I/O ops:   " ++ show totalOps
