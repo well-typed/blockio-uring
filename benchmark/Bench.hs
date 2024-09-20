@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE TypeFamilies #-} -- Needed for GHC 9.2 and older only
 {- HLINT ignore "Use camelCase" -}
 
 module Main (main) where
@@ -8,6 +9,7 @@ import Data.Primitive
 import qualified Data.Set as Set
 import Control.Monad
 import Control.Monad.Primitive (RealWorld)
+import Control.Monad.ST (ST)
 import Control.Exception
 import Control.Concurrent.Async as Async
 
@@ -142,6 +144,7 @@ generateIOOpsBatch !fd !buf !lastBlock !size !rng0 =
       go v rng0 0
       return v
   where
+    go :: V.MVector s (IOOp IO) -> Random.StdGen -> Int -> ST s ()
     go !_ !_   !i | i == size = return ()
     go !v !rng !i = do
       let (!block, !rng') = Random.uniformR (0, lastBlock) rng
