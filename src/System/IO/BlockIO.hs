@@ -29,7 +29,8 @@ import qualified Data.Vector.Unboxed.Mutable as VUM
 
 import Control.Monad
 import Control.Monad.Primitive
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkOn, myThreadId, threadCapability,
+                           getNumCapabilities)
 import Control.Concurrent.MVar
 import Control.Concurrent.QSemN
 import Control.Concurrent.Chan
@@ -51,7 +52,10 @@ import           System.IO.BlockIO.URing (IOResult(..))
 
 -- | IO context: a handle used by threads submitting IO batches.
 --
-data IOCtx = IOCtx {
+newtype IOCtx = IOCtx (V.Vector IOCapCtx) -- one per RTS capability.
+
+type CapNo = Int
+data IOCapCtx = IOCapCtx {
                -- | This is initialised from the 'ioctxBatchSizeLimit' from the 'IOCtxParams'.
                ioctxBatchSizeLimit' :: !Int,
 
@@ -94,10 +98,27 @@ withIOCtx :: IOCtxParams -> (IOCtx -> IO a) -> IO a
 withIOCtx params = bracket (initIOCtx params) closeIOCtx
 
 initIOCtx :: IOCtxParams -> IO IOCtx
-initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
+initIOCtx ioctxparams = do
 #if MIN_VERSION_base(4,16,0)
-    unless hostIsThreaded $ throwIO rtrsNotThreaded
+    unless hostIsThreaded $ throwIO rtsNotThreaded
 #endif
+    ncaps <- getNumCapabilities
+    IOCtx <$> V.generateM ncaps (initIOCapCtx ioctxparams)
+#if MIN_VERSION_base(4,16,0)
+  where
+    rtsNotThreaded =
+        mkIOError
+          illegalOperationErrorType
+          "The run-time system should be threaded, make sure you are passing the -threaded flag"
+          Nothing
+          Nothing
+#endif
+
+initIOCapCtx :: IOCtxParams -> CapNo -> IO IOCapCtx
+initIOCapCtx IOCtxParams {
+               ioctxBatchSizeLimit,
+               ioctxConcurrencyLimit
+             } capno = do
     mask_ $ do
       ioctxQSemN         <- newQSemN ioctxConcurrencyLimit
       uring              <- URing.setupURing (URing.URingParams ioctxBatchSizeLimit ioctxConcurrencyLimit)
@@ -105,7 +126,8 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
       ioctxChanIOBatch   <- newChan
       ioctxChanIOBatchIx <- newChan
       ioctxCloseSync     <- newEmptyMVar
-      _ <- forkIO $
+      t <- forkOn capno $
+             -- Use forkOn to bind the thread to this capability
              completionThread
                uring
                ioctxCloseSync
@@ -116,7 +138,7 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
       let initialBatchIxs :: [IOBatchIx]
           initialBatchIxs = [0 .. ioctxConcurrencyLimit-1]
       writeList2Chan ioctxChanIOBatchIx initialBatchIxs
-      return IOCtx {
+      return IOCapCtx {
         ioctxBatchSizeLimit' = ioctxBatchSizeLimit,
         ioctxQSemN,
         ioctxURing,
@@ -124,18 +146,12 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
         ioctxChanIOBatchIx,
         ioctxCloseSync
       }
-#if MIN_VERSION_base(4,16,0)
-  where
-    rtrsNotThreaded =
-        mkIOError
-          illegalOperationErrorType
-          "The run-time system should be threaded, make sure you are passing the -threaded flag"
-          Nothing
-          Nothing
-#endif
 
 closeIOCtx :: IOCtx -> IO ()
-closeIOCtx IOCtx {ioctxURing, ioctxCloseSync} = do
+closeIOCtx (IOCtx capctxs) = V.mapM_ closeIOCapCtx capctxs
+
+closeIOCapCtx :: IOCapCtx -> IO ()
+closeIOCapCtx IOCapCtx {ioctxURing, ioctxCloseSync} = do
     uringMay <- takeMVar ioctxURing
     case uringMay of
       Nothing -> putMVar ioctxURing Nothing
@@ -190,7 +206,19 @@ data IOOp m = IOOpRead  !Fd !FileOffset !(MutableByteArray (PrimState m)) !Int !
 --   at least the target number in flight at once.
 --
 submitIO :: IOCtx -> V.Vector (IOOp IO) -> IO (VU.Vector IOResult)
-submitIO ioctx@IOCtx {ioctxBatchSizeLimit'} !ioops
+submitIO (IOCtx capctxs) !ioops = do
+    -- Find out which capability the thread is currently running on and use
+    -- that one. It does _not matter_ for correctness if the thread is migrated
+    -- while the I/O is submitted or when waiting for completion. Migration
+    -- happens sufficiently infrequently that it should not be a performance
+    -- problem.
+    tid <- myThreadId
+    (capno, _) <- threadCapability tid
+    let !capctx = capctxs V.! (capno `mod` V.length capctxs)
+    submitCapIO capctx ioops
+
+submitCapIO :: IOCapCtx -> V.Vector (IOOp IO) -> IO (VU.Vector IOResult)
+submitCapIO ioctx@IOCapCtx {ioctxBatchSizeLimit'} !ioops
     -- Typical small case. We can be more direct.
   | V.length ioops > 0 && V.length ioops <= ioctxBatchSizeLimit'
   = mask_ $ do
@@ -198,7 +226,7 @@ submitIO ioctx@IOCtx {ioctxBatchSizeLimit'} !ioops
       prepAndSubmitIOBatch ioctx ioops iobatchCompletion
       takeMVar iobatchCompletion
 
-submitIO ioctx@IOCtx {ioctxBatchSizeLimit'} !ioops0 =
+submitCapIO ioctx@IOCapCtx {ioctxBatchSizeLimit'} !ioops0 =
     -- General case. Needs multiple batches and combining results, or the vector
     -- of I/O operations is empty.
     mask_ $ do
@@ -218,11 +246,11 @@ submitIO ioctx@IOCtx {ioctxBatchSizeLimit'} !ioops0 =
       VU.concat <$> mapM takeMVar (reverse iobatchCompletions)
 
 -- Must be called with async exceptions masked. See mask_ above in submitIO.
-prepAndSubmitIOBatch :: IOCtx
+prepAndSubmitIOBatch :: IOCapCtx
                      -> V.Vector (IOOp IO)
                      -> MVar (VU.Vector IOResult)
                      -> IO ()
-prepAndSubmitIOBatch IOCtx {
+prepAndSubmitIOBatch IOCapCtx {
                        ioctxQSemN,
                        ioctxURing,
                        ioctxChanIOBatch,
