@@ -11,6 +11,7 @@ import Control.Monad
 import Control.Monad.Primitive (RealWorld)
 import Control.Monad.ST (ST)
 import Control.Exception
+import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async as Async
 
 import Foreign
@@ -108,6 +109,7 @@ main_highlevel filename = do
 #endif
   status <- getFdStatus fd
   rng    <- initStdGen
+  ncaps  <- getNumCapabilities
   let size      = fileSize status
       lastBlock :: Int
       lastBlock = fromIntegral (size `div` 4096 - 1)
@@ -115,17 +117,21 @@ main_highlevel filename = do
                     ioctxBatchSizeLimit   = 64,
                     ioctxConcurrencyLimit = 64 * 4
                   }
-      ntasks    = 4
+      ntasks    = 4 * ncaps
       batchsz   = 32
       nbatches  = lastBlock `div` (ntasks * batchsz) -- batches per task
       totalOps  = nbatches * batchsz * ntasks
+
+  putStrLn $ "Capabilities:   " ++ show ncaps
+  putStrLn $ "Threads     :   " ++ show ntasks
+
   bracket (initIOCtx params) closeIOCtx $ \ioctx ->
     withReport totalOps $ do
       tasks <-
-        forRngSplitM ntasks rng $ \ !rng_task ->
-          Async.async $ do
+        forRngSplitM ntasks rng $ \ n !rng_task ->
+          Async.asyncOn n $ do
             buf <- newPinnedByteArray (4096 * batchsz)
-            forRngSplitM_ nbatches rng_task $ \ !rng_batch ->
+            forRngSplitM_ nbatches rng_task $ \ _ !rng_batch ->
               submitIO ioctx $
                 generateIOOpsBatch fd buf lastBlock batchsz rng_batch
       _ <- Async.waitAnyCancel tasks
@@ -154,20 +160,28 @@ generateIOOpsBatch !fd !buf !lastBlock !size !rng0 =
       go v rng' (i+1)
 
 {-# INLINE forRngSplitM_ #-}
-forRngSplitM_ :: Monad m => Int -> Random.StdGen -> (Random.StdGen -> m a) -> m ()
-forRngSplitM_ n rng0 action = go n rng0
+forRngSplitM_ :: Monad m
+              => Int
+              -> Random.StdGen
+              -> (Int -> Random.StdGen -> m a)
+              -> m ()
+forRngSplitM_ n rng0 action = go 0 rng0
   where
-    go 0  !_   = return ()
+    go !i !_   | i == n = return ()
     go !i !rng = let (!rng', !rng'') = Random.split rng
-                  in action rng' >> go (i-1) rng''
+                  in action i rng' >> go (i+1) rng''
 
 {-# INLINE forRngSplitM #-}
-forRngSplitM :: Monad m => Int -> Random.StdGen -> (Random.StdGen -> m a) -> m [a]
-forRngSplitM n rng0 action = go [] n rng0
+forRngSplitM :: Monad m
+             => Int
+             -> Random.StdGen
+             -> (Int -> Random.StdGen -> m a)
+             -> m [a]
+forRngSplitM n rng0 action = go [] 0 rng0
   where
-    go acc 0  !_   = return (reverse acc)
+    go acc !i !_   | i == n = return (reverse acc)
     go acc !i !rng = let (!rng', !rng'') = Random.split rng
-                      in action rng' >>= \x -> go (x:acc) (i-1) rng''
+                      in action i rng' >>= \x -> go (x:acc) (i+1) rng''
 
 {-# INLINE withReport #-}
 withReport :: Int -> IO () -> IO ()
