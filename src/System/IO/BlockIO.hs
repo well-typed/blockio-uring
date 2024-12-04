@@ -126,7 +126,7 @@ initIOCapCtx IOCtxParams {
       ioctxChanIOBatch   <- newChan
       ioctxChanIOBatchIx <- newChan
       ioctxCloseSync     <- newEmptyMVar
-      t <- forkOn capno $
+      _t <- forkOn capno $
              -- Use forkOn to bind the thread to this capability
              completionThread
                uring
