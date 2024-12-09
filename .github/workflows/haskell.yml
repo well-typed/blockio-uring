@@ -22,30 +22,41 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["8.10.7", "9.2.8", "9.4.8", "9.6.5", "9.8.2", "9.10.1"]
-        cabal: ["3.10.3.0"]
+        ghc: ["8.10.7", "9.2.8", "9.4.8", "9.6.6", "9.8.4", "9.10.1"]
+        cabal: ["3.12.1.0"]
         os: [ubuntu-latest] # ubuntu-latest = ubuntu-22.04
-        liburing: ["liburing-2.6"]
+        # TODO: revisit once ubuntu-latest moved to 24.04
+        # https://github.com/actions/runner-images/issues/10636
+        liburing: ["system"]
+        # system liburing is 2.1 on 22.04, 2.5 on 24.04
         include:
-        - ghc: "9.6.5"
-          cabal: "3.10.3.0"
+        - ghc: "9.6.6"
+          cabal: "3.12.1.0"
           os: ubuntu-20.04
           liburing: "liburing-2.1"
           # It's weird, but at the liburing-2.1 tag, the liburing.pc file lists
           # a library version 2.0. From liburing-2.2 onward, the version listed
           # in the liburing.pc file is no longer a mismatch.
-        - ghc: "9.6.5"
-          cabal: "3.10.3.0"
+        - ghc: "9.6.6"
+          cabal: "3.12.1.0"
           os: ubuntu-20.04
-          liburing: "liburing-2.6"
-        - ghc: "9.6.5"
-          cabal: "3.10.3.0"
+          liburing: "liburing-2.8"
+        - ghc: "9.6.6"
+          cabal: "3.12.1.0"
           os: ubuntu-22.04
           liburing: "liburing-2.1"
-        - ghc: "9.6.5"
-          cabal: "3.10.3.0"
+        - ghc: "9.6.6"
+          cabal: "3.12.1.0"
           os: ubuntu-22.04
-          liburing: "system"
+          liburing: "liburing-2.8"
+        - ghc: "9.6.6"
+          cabal: "3.12.1.0"
+          os: ubuntu-24.04
+          liburing: "liburing-2.1"
+        - ghc: "9.6.6"
+          cabal: "3.12.1.0"
+          os: ubuntu-24.04
+          liburing: "liburing-2.8"
 
     timeout-minutes: 30
 

@@ -45,7 +45,7 @@ library
     , primitive  ^>=0.9
     , vector     ^>=0.13
 
-  pkgconfig-depends: liburing >=2.0 && <2.7
+  pkgconfig-depends: liburing >=2.0 && <2.9
   default-language:  Haskell2010
   ghc-options:       -Wall
 
