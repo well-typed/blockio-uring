@@ -33,6 +33,7 @@ import qualified Data.Vector.Unboxed.Base
 
 import Foreign
 import Foreign.C
+import Foreign.ForeignPtr.Unsafe
 import System.IO.Error
 import System.Posix.Types
 
@@ -46,23 +47,30 @@ import qualified System.IO.BlockIO.URingFFI as FFI
 -- Init
 --
 
-newtype URing = URing (Ptr FFI.URing)
+data URing = URing {
+               -- | The uring itself.
+               uringptr  :: !(Ptr FFI.URing),
+               
+               -- | A pre-allocated buffer to help with FFI marshalling.
+               cqeptrfptr :: {-# UNPACK #-} !(ForeignPtr (Ptr FFI.URingCQE))
+             }
 newtype URingParams = URingParams { uringSize :: Int }
 
 setupURing :: URingParams -> IO URing
 setupURing URingParams { uringSize } = do
     uringptr <- malloc
+    cqeptrfptr <- mallocForeignPtr
     throwErrnoResIfNegRetry_ "uringInit" $
       FFI.io_uring_queue_init
         (fromIntegral uringSize)
         uringptr
         flags
-    return (URing uringptr)
+    return URing { uringptr, cqeptrfptr }
   where
     flags = 0
 
 closeURing :: URing -> IO ()
-closeURing (URing uringptr) = do
+closeURing URing {uringptr} = do
     FFI.io_uring_queue_exit uringptr
     free uringptr
 
@@ -79,7 +87,7 @@ newtype IOOpId = IOOpId Word64
   deriving (Eq, Ord, Bounded, Show)
 
 prepareRead :: URing -> Fd -> FileOffset -> Ptr Word8 -> ByteCount -> IOOpId -> IO ()
-prepareRead (URing uringptr) fd off buf len (IOOpId ioopid) = do
+prepareRead URing {uringptr} fd off buf len (IOOpId ioopid) = do
     sqeptr <- throwErrResIfNull "prepareRead" fullErrorType
                                 "URing I/O queue full" $
       FFI.io_uring_get_sqe uringptr
@@ -87,7 +95,7 @@ prepareRead (URing uringptr) fd off buf len (IOOpId ioopid) = do
     FFI.io_uring_sqe_set_data sqeptr (fromIntegral ioopid)
 
 prepareWrite :: URing -> Fd -> FileOffset -> Ptr Word8 -> ByteCount -> IOOpId -> IO ()
-prepareWrite (URing uringptr) fd off buf len (IOOpId ioopid) = do
+prepareWrite URing {uringptr} fd off buf len (IOOpId ioopid) = do
     sqeptr <- throwErrResIfNull "prepareWrite" fullErrorType
                                 "URing I/O queue full" $
       FFI.io_uring_get_sqe uringptr
@@ -95,7 +103,7 @@ prepareWrite (URing uringptr) fd off buf len (IOOpId ioopid) = do
     FFI.io_uring_sqe_set_data sqeptr (fromIntegral ioopid)
 
 prepareNop :: URing -> IOOpId -> IO ()
-prepareNop (URing uringptr) (IOOpId ioopid) = do
+prepareNop URing {uringptr} (IOOpId ioopid) = do
     sqeptr <- throwErrResIfNull "prepareNop" fullErrorType
                                 "URing I/O queue full" $
       FFI.io_uring_get_sqe uringptr
@@ -103,7 +111,7 @@ prepareNop (URing uringptr) (IOOpId ioopid) = do
     FFI.io_uring_sqe_set_data sqeptr (fromIntegral ioopid)
 
 submitIO :: URing -> IO ()
-submitIO (URing uringptr) =
+submitIO URing {uringptr} =
     throwErrnoResIfNegRetry_ "submitIO" $
       FFI.io_uring_submit uringptr
 
@@ -157,9 +165,15 @@ instance VU.Unbox IOResult
 -- Completing I/O
 --
 
+-- | Must only be called from one thread at once.
 awaitIO :: URing -> IO IOCompletion
-awaitIO (URing uringptr) =
-    alloca $ \cqeptrptr -> do
+awaitIO !URing {uringptr, cqeptrfptr} = do
+      -- We use unsafeForeignPtrToPtr and touchForeignPtr here rather than
+      -- withForeignPtr because using withForeignPtr defeats GHCs CPR analysis
+      -- which causes the 'IOCompletion' result to be allocated on the heap
+      -- rather than returned in registers.
+
+      let !cqeptrptr = unsafeForeignPtrToPtr cqeptrfptr
       -- Try non-blocking first (unsafe FFI call)
       peekres <- FFI.io_uring_peek_cqe uringptr cqeptrptr
       -- But if nothing is available, use a blocking call (safe FFI call)
@@ -175,6 +189,7 @@ awaitIO (URing uringptr) =
       cqeptr <- peek cqeptrptr
       FFI.URingCQE { FFI.cqe_data, FFI.cqe_res } <- peek cqeptr
       FFI.io_uring_cqe_seen uringptr cqeptr
+      touchForeignPtr cqeptrfptr
       let opid = IOOpId (fromIntegral cqe_data)
           res  = IOResult_ (fromIntegral cqe_res)
       return $! IOCompletion opid res
