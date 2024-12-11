@@ -7,9 +7,10 @@ module System.IO.BlockIO (
 
     -- * I\/O context and initialisation
     IOCtx,
-    initIOCtx,
     IOCtxParams(..),
     defaultIOCtxParams,
+    withIOCtx,
+    initIOCtx,
     closeIOCtx,
 
     -- * Performing I\/O
@@ -34,7 +35,7 @@ import Control.Concurrent.MVar
 import Control.Concurrent.QSemN
 import Control.Concurrent.Chan
 import Control.Exception (mask_, throw, ArrayException(UndefinedElement),
-                          finally, assert, throwIO)
+                          finally, assert, throwIO, bracket)
 import System.IO.Error
 import GHC.IO.Exception (IOErrorType(ResourceVanished, InvalidArgument))
 
@@ -89,6 +90,9 @@ defaultIOCtxParams =
     ioctxBatchSizeLimit   = 64,
     ioctxConcurrencyLimit = 64 * 3
   }
+
+withIOCtx :: IOCtxParams -> (IOCtx -> IO a) -> IO a
+withIOCtx params = bracket (initIOCtx params) closeIOCtx
 
 initIOCtx :: IOCtxParams -> IO IOCtx
 initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
