@@ -22,11 +22,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["8.10.7", "9.2.8", "9.4.8", "9.6.6", "9.8.4", "9.10.1"]
+        ghc: ["8.10.7", "9.2.8", "9.4.8", "9.6.6", "9.8.4", "9.10.1", "9.12.1"]
         cabal: ["3.12.1.0"]
-        os: [ubuntu-latest] # ubuntu-latest = ubuntu-22.04
-        # TODO: revisit once ubuntu-latest moved to 24.04
-        # https://github.com/actions/runner-images/issues/10636
+        os: [ubuntu-latest] # ubuntu-latest = ubuntu-24.04
         liburing: ["system"]
         # system liburing is 2.1 on 22.04, 2.5 on 24.04
         include:
