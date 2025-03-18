@@ -1,10 +1,12 @@
 ; Read a single file with io_uring at different depths
 [global]
 ioengine=io_uring
-direct=0
+direct=1
 rw=randread
 size=1024m
 directory=benchmark
+numjobs=4
+group_reporting
 
 [benchfile]
 iodepth=96
