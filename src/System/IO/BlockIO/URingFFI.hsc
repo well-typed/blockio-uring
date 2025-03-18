@@ -81,9 +81,44 @@ instance Storable URingCQE where
 foreign import capi safe "liburing.h io_uring_wait_cqe"
   io_uring_wait_cqe :: Ptr URing -> Ptr (Ptr URingCQE) -> IO CInt
 
+foreign import capi safe "liburing.h io_uring_wait_cqe_nr"
+  io_uring_wait_cqe_nr :: Ptr URing -> Ptr (Ptr URingCQE) -> CUInt -> IO CInt
+
 foreign import capi unsafe "liburing.h io_uring_peek_cqe"
   io_uring_peek_cqe :: Ptr URing -> Ptr (Ptr URingCQE) -> IO CInt
 
+foreign import capi unsafe "liburing.h io_uring_peek_batch_cqe"
+  io_uring_peek_batch_cqe :: Ptr URing -> Ptr (Ptr URingCQE) -> CUInt -> IO CUInt
+
 foreign import capi unsafe "liburing.h io_uring_cqe_seen"
   io_uring_cqe_seen :: Ptr URing -> Ptr URingCQE -> IO ()
+
+foreign import capi unsafe "liburing.h io_uring_cq_advance"
+  io_uring_cq_advance :: Ptr URing -> CUInt -> IO ()
+
+foreign import capi unsafe "liburing.h io_uring_cq_ready"
+  io_uring_cq_ready :: Ptr URing -> IO CUInt
+
+-- debug
+
+data TimeSpec = TimeSpec !Word64 !CLLong
+
+instance Storable TimeSpec where
+  sizeOf    _ = #{size      struct __kernel_timespec}
+  alignment _ = #{alignment struct __kernel_timespec}
+  peek      p = do sec  <- #{peek struct __kernel_timespec, tv_sec} p
+                   nsec <- #{peek struct __kernel_timespec, tv_nsec} p
+                   return (TimeSpec sec nsec)
+  poke p (TimeSpec sec nsec) = do
+    #{poke struct __kernel_timespec, tv_sec}  p sec
+    #{poke struct __kernel_timespec, tv_nsec} p nsec
+
+foreign import capi unsafe "liburing.h io_uring_prep_timeout"
+  io_uring_prep_timeout :: Ptr URingSQE -> Ptr TimeSpec -> CUInt -> CUInt -> IO ()
+
+_IORING_TIMEOUT_ETIME_SUCCESS :: CUInt
+_IORING_TIMEOUT_ETIME_SUCCESS = #{const IORING_TIMEOUT_ETIME_SUCCESS}
+
+_ETIME :: Errno
+_ETIME = Errno #{const ETIME}
 

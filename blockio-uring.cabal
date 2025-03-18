@@ -45,11 +45,14 @@ library
     , primitive  ^>=0.9
     , vector     ^>=0.13
 
+    -- debug only
+    , containers
+
   pkgconfig-depends: liburing >=2.0 && <2.7
   default-language:  Haskell2010
   ghc-options:       -Wall
 
-benchmark bench
+benchmark io-bench
   default-language:  Haskell2010
   type:              exitcode-stdio-1.0
   hs-source-dirs:    benchmark src
@@ -73,7 +76,7 @@ benchmark bench
 
   ghc-options:       -Wall -threaded -with-rtsopts=-T
 
-test-suite test
+test-suite io-test
   default-language: Haskell2010
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test
