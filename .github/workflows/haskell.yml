@@ -71,7 +71,6 @@ jobs:
         cabal-update: true
 
     - name: Install (specific) liburing from source
-      id: setup-liburing-source
       if: ${{ ! (matrix.liburing == 'system') }}
       run: |
         sudo apt-get update
@@ -90,7 +89,6 @@ jobs:
         pkg-config --modversion liburing
 
     - name: Install (newest) liburing from a package manager
-      id: setup-liburing-cloned
       if: ${{ matrix.liburing == 'system' }}
       run: |
         sudo apt-get update
@@ -102,7 +100,6 @@ jobs:
         cat cabal.project.local
 
     - name: Record cabal dependencies
-      id: record-deps
       run: |
         cabal build all --dry-run
 
@@ -122,7 +119,6 @@ jobs:
 
     - name: "Save cache"
       uses: actions/cache/save@v4
-      id: save-cabal-cache
       # Note: cache-hit will be set to true only when cache hit occurs for the
       # exact key match. For a partial key match via restore-keys or a cache
       # miss, it will be set to false.
