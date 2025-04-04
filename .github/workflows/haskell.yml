@@ -38,7 +38,7 @@ jobs:
         - ghc: "9.6.6"
           cabal: "3.12.1.0"
           os: ubuntu-20.04
-          liburing: "liburing-2.8"
+          liburing: "liburing-2.9"
         - ghc: "9.6.6"
           cabal: "3.12.1.0"
           os: ubuntu-22.04
@@ -46,7 +46,7 @@ jobs:
         - ghc: "9.6.6"
           cabal: "3.12.1.0"
           os: ubuntu-22.04
-          liburing: "liburing-2.8"
+          liburing: "liburing-2.9"
         - ghc: "9.6.6"
           cabal: "3.12.1.0"
           os: ubuntu-24.04
@@ -54,7 +54,7 @@ jobs:
         - ghc: "9.6.6"
           cabal: "3.12.1.0"
           os: ubuntu-24.04
-          liburing: "liburing-2.8"
+          liburing: "liburing-2.9"
 
     timeout-minutes: 30
 
