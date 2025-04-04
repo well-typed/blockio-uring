@@ -22,37 +22,37 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["8.10.7", "9.2.8", "9.4.8", "9.6.6", "9.8.4", "9.10.1", "9.12.1"]
-        cabal: ["3.12.1.0"]
+        ghc: ["8.10", "9.2", "9.4", "9.6", "9.8", "9.10", "9.12"]
+        cabal: ["3.12"]
         os: [ubuntu-latest] # ubuntu-latest = ubuntu-24.04
         liburing: ["system"]
         # system liburing is 2.1 on 22.04, 2.5 on 24.04
         include:
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-20.04
           liburing: "liburing-2.1"
           # It's weird, but at the liburing-2.1 tag, the liburing.pc file lists
           # a library version 2.0. From liburing-2.2 onward, the version listed
           # in the liburing.pc file is no longer a mismatch.
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-20.04
           liburing: "liburing-2.9"
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-22.04
           liburing: "liburing-2.1"
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-22.04
           liburing: "liburing-2.9"
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-24.04
           liburing: "liburing-2.1"
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-24.04
           liburing: "liburing-2.9"
 
