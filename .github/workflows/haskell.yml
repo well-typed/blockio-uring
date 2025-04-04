@@ -31,30 +31,30 @@ jobs:
         - ghc: "9.6"
           cabal: "3.12"
           os: ubuntu-20.04
-          liburing: "liburing-2.1"
+          liburing: "2.1"
           # It's weird, but at the liburing-2.1 tag, the liburing.pc file lists
           # a library version 2.0. From liburing-2.2 onward, the version listed
           # in the liburing.pc file is no longer a mismatch.
         - ghc: "9.6"
           cabal: "3.12"
           os: ubuntu-20.04
-          liburing: "liburing-2.9"
+          liburing: "2.9"
         - ghc: "9.6"
           cabal: "3.12"
           os: ubuntu-22.04
-          liburing: "liburing-2.1"
+          liburing: "2.1"
         - ghc: "9.6"
           cabal: "3.12"
           os: ubuntu-22.04
-          liburing: "liburing-2.9"
+          liburing: "2.9"
         - ghc: "9.6"
           cabal: "3.12"
           os: ubuntu-24.04
-          liburing: "liburing-2.1"
+          liburing: "2.1"
         - ghc: "9.6"
           cabal: "3.12"
           os: ubuntu-24.04
-          liburing: "liburing-2.9"
+          liburing: "2.9"
 
     timeout-minutes: 30
 
@@ -81,7 +81,7 @@ jobs:
         cd tmp
         git clone https://github.com/axboe/liburing.git
         cd liburing
-        git checkout ${{ matrix.liburing }}
+        git checkout liburing-${{ matrix.liburing }}
         ./configure --cc=gcc --cxx=g++
         make -j$(nproc)
         sudo make install
