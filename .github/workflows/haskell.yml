@@ -136,9 +136,7 @@ jobs:
     - name: Build
       run: cabal build all
 
-    - name: Set test timeout
-      run: |
-        echo "TASTY_TIMEOUT=5m" >> "$GITHUB_ENV"
-
     - name: Run tests
+      env:
+        TASTY_TIMEOUT: "5m"
       run: cabal test -j1 --test-show-details=direct all
