@@ -17,15 +17,6 @@ permissions:
 jobs:
   # Build and test
   build:
-    name: |
-      ${{ format(
-        'Build on {0}{1}{2}{3}',
-        matrix.os,
-        matrix.ghc && format(' with GHC {0}', matrix.ghc),
-        matrix.cabal && format(' and Cabal {0}', matrix.cabal),
-        matrix.liburing && ((matrix.liburing == 'system' && ' and system-default liburing') || format(' and liburing {0}', matrix.liburing))
-      )}}
-
     runs-on: ${{ matrix.os }}
 
     strategy:
