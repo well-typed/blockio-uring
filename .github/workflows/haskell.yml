@@ -17,44 +17,53 @@ permissions:
 jobs:
   # Build and test
   build:
+    name: |
+      ${{ format(
+        'Build on {0}{1}{2}{3}',
+        matrix.os,
+        matrix.ghc && format(' with GHC {0}', matrix.ghc),
+        matrix.cabal && format(' and Cabal {0}', matrix.cabal),
+        matrix.liburing && ((matrix.liburing == 'system' && ' and system-default liburing') || format(' and liburing {0}', matrix.liburing))
+      )}}
+
     runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["8.10.7", "9.2.8", "9.4.8", "9.6.6", "9.8.4", "9.10.1", "9.12.1"]
-        cabal: ["3.12.1.0"]
+        ghc: ["8.10", "9.2", "9.4", "9.6", "9.8", "9.10", "9.12"]
+        cabal: ["3.12"]
         os: [ubuntu-latest] # ubuntu-latest = ubuntu-24.04
         liburing: ["system"]
         # system liburing is 2.1 on 22.04, 2.5 on 24.04
         include:
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-20.04
-          liburing: "liburing-2.1"
+          liburing: "2.1"
           # It's weird, but at the liburing-2.1 tag, the liburing.pc file lists
           # a library version 2.0. From liburing-2.2 onward, the version listed
           # in the liburing.pc file is no longer a mismatch.
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-20.04
-          liburing: "liburing-2.8"
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+          liburing: "2.9"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-22.04
-          liburing: "liburing-2.1"
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+          liburing: "2.1"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-22.04
-          liburing: "liburing-2.8"
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+          liburing: "2.9"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-24.04
-          liburing: "liburing-2.1"
-        - ghc: "9.6.6"
-          cabal: "3.12.1.0"
+          liburing: "2.1"
+        - ghc: "9.6"
+          cabal: "3.12"
           os: ubuntu-24.04
-          liburing: "liburing-2.8"
+          liburing: "2.9"
 
     timeout-minutes: 30
 
@@ -71,7 +80,6 @@ jobs:
         cabal-update: true
 
     - name: Install (specific) liburing from source
-      id: setup-liburing-source
       if: ${{ ! (matrix.liburing == 'system') }}
       run: |
         sudo apt-get update
@@ -81,7 +89,7 @@ jobs:
         cd tmp
         git clone https://github.com/axboe/liburing.git
         cd liburing
-        git checkout ${{ matrix.liburing }}
+        git checkout liburing-${{ matrix.liburing }}
         ./configure --cc=gcc --cxx=g++
         make -j$(nproc)
         sudo make install
@@ -90,7 +98,6 @@ jobs:
         pkg-config --modversion liburing
 
     - name: Install (newest) liburing from a package manager
-      id: setup-liburing-cloned
       if: ${{ matrix.liburing == 'system' }}
       run: |
         sudo apt-get update
@@ -102,7 +109,6 @@ jobs:
         cat cabal.project.local
 
     - name: Record cabal dependencies
-      id: record-deps
       run: |
         cabal build all --dry-run
 
@@ -110,13 +116,11 @@ jobs:
       uses: actions/cache/restore@v4
       id: restore-cabal-cache
       env:
-        cache-name: cache-cabal-build
+        cache-name: cache-cabal-build-${{ matrix.os }}-ghc-${{ steps.setup-haskell.outputs.ghc-version }}-cabal-${{ steps.setup-haskell.outputs.cabal-version }}-liburing-${{ matrix.liburing }}
       with:
         path: ${{ steps.setup-haskell.outputs.cabal-store }}
-        key: ${{ runner.os }}-${{ matrix.ghc }}-${{ matrix.liburing }}-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-${{ hashFiles('**/cabal.project') }}
-        restore-keys: |
-          ${{ runner.os }}-${{ matrix.ghc }}-${{ matrix.liburing }}-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-
-          ${{ runner.os }}-${{ matrix.ghc }}-${{ matrix.liburing }}-${{ env.cache-name }}-
+        key: ${{ env.cache-name }}-${{ hashFiles('dist-newstyle/cache/plan.json') }}
+        restore-keys: ${{ env.cache-name }}-
 
     - name: Install cabal dependencies
       id: build-dependencies
@@ -124,7 +128,6 @@ jobs:
 
     - name: "Save cache"
       uses: actions/cache/save@v4
-      id: save-cabal-cache
       # Note: cache-hit will be set to true only when cache hit occurs for the
       # exact key match. For a partial key match via restore-keys or a cache
       # miss, it will be set to false.
@@ -136,9 +139,7 @@ jobs:
     - name: Build
       run: cabal build all
 
-    - name: Set test timeout
-      run: |
-        echo "TASTY_TIMEOUT=5m" >> "$GITHUB_ENV"
-
     - name: Run tests
+      env:
+        TASTY_TIMEOUT: "5m"
       run: cabal test -j1 --test-show-details=direct all
