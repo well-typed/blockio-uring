@@ -52,14 +52,34 @@ newtype URingParams = URingParams { uringSize :: Int }
 setupURing :: URingParams -> IO URing
 setupURing URingParams { uringSize } = do
     uringptr <- malloc
-    throwErrnoResIfNegRetry_ "uringInit" $
-      FFI.io_uring_queue_init
-        (fromIntegral uringSize)
-        uringptr
-        flags
-    return (URing uringptr)
+    alloca $ \paramsptr -> do
+      putStrLn ("params before: " ++ show params)
+      poke paramsptr params
+      throwErrnoResIfNegRetry_ "setupURing" $
+        FFI.io_uring_queue_init_params
+          (fromIntegral uringSize)
+          uringptr
+          paramsptr
+      params' <- peek paramsptr
+      putStrLn ("params after: " ++ show params')
+      putStrLn ("IORING_FEAT_NODROP: " ++ show (FFI.features params' .&. FFI.iORING_FEAT_NODROP))
+      return (URing uringptr)
   where
     flags = 0
+    params = FFI.URingParams {
+        FFI.sq_entries = 0
+      , FFI.cq_entries = 0
+      , FFI.flags = flags
+      , FFI.sq_thread_cpu = 0
+      , FFI.sq_thread_idle = 0
+      , FFI.features = 0
+      , FFI.wq_fd = 0
+      , FFI.resv1 = 0
+      , FFI.resv2 = 0
+      , FFI.resv3 = 0
+      , FFI.sq_off = FFI.SQRingOffsets 0 0 0 0 0 0 0 0 0
+      , FFI.cq_off = FFI.CQRingOffsets 0 0 0 0 0 0 0 0 0
+      }
 
 closeURing :: URing -> IO ()
 closeURing (URing uringptr) = do

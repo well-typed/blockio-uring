@@ -104,8 +104,10 @@ test-suite test-internals
   build-depends:
     , base
     , primitive
+    , quickcheck-classes
     , tasty
     , tasty-hunit
+    , tasty-quickcheck
     , vector
 
   pkgconfig-depends: liburing
