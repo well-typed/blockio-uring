@@ -115,3 +115,21 @@ test-suite test-internals
     System.IO.BlockIO.URingFFI
 
   ghc-options:       -threaded -fno-ignore-asserts
+
+test-suite test-uninterruptible-sleep
+  import:           warnings
+  default-language: Haskell2010
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          test-uninterruptible-sleep.hs
+  build-depends:
+    , async
+    , base
+    , blockio-uring
+    , bytestring
+    , filepath
+    , primitive
+    , temporary
+    , vector
+
+  ghc-options:      -threaded
