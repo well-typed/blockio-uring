@@ -35,7 +35,11 @@ source-repository head
   type:     git
   location: https://github.com/well-typed/blockio-uring
 
+common warnings
+  ghc-options: -Wunused-packages
+
 library
+  import:            warnings
   exposed-modules:   System.IO.BlockIO
   hs-source-dirs:    src
   other-modules:
@@ -52,12 +56,12 @@ library
   ghc-options:       -Wall
 
 benchmark bench
+  import:            warnings
   default-language:  Haskell2010
   type:              exitcode-stdio-1.0
   hs-source-dirs:    benchmark src
   main-is:           Bench.hs
   build-depends:
-    , array
     , async
     , base
     , containers
@@ -76,12 +80,12 @@ benchmark bench
   ghc-options:       -Wall -threaded
 
 test-suite test
+  import:           warnings
   default-language: Haskell2010
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test
   main-is:          test.hs
   build-depends:
-    , array
     , base
     , blockio-uring
     , primitive
@@ -92,12 +96,12 @@ test-suite test
   ghc-options:      -threaded
 
 test-suite test-internals
+  import:            warnings
   default-language:  Haskell2010
   type:              exitcode-stdio-1.0
   hs-source-dirs:    test src
   main-is:           test-internals.hs
   build-depends:
-    , array
     , base
     , primitive
     , tasty
