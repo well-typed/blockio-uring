@@ -48,7 +48,7 @@ main_lowlevel filename = do
       lastBlock = fromIntegral (size `div` 4096 - 1)
       nqueue    = 64
       nbufs     = 64 * 4
-  withURing (URingParams nqueue) $ \uring ->
+  withURing (URingParams nqueue nbufs) $ \uring ->
     allocaBytes (4096 * nbufs) $ \bufptr -> do
       let submitBatch :: [(Int, Int)] -> IO ()
           submitBatch blocks = do

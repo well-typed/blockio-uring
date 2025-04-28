@@ -88,7 +88,7 @@ defaultIOCtxParams :: IOCtxParams
 defaultIOCtxParams =
   IOCtxParams {
     ioctxBatchSizeLimit   = 64,
-    ioctxConcurrencyLimit = 64 * 2
+    ioctxConcurrencyLimit = 64 * 4
   }
 
 withIOCtx :: IOCtxParams -> (IOCtx -> IO a) -> IO a
@@ -101,7 +101,7 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
 #endif
     mask_ $ do
       ioctxQSemN         <- newQSemN ioctxConcurrencyLimit
-      uring              <- URing.setupURing (URing.URingParams ioctxBatchSizeLimit)
+      uring              <- URing.setupURing (URing.URingParams ioctxBatchSizeLimit ioctxConcurrencyLimit)
       ioctxURing         <- newMVar (Just uring)
       ioctxChanIOBatch   <- newChan
       ioctxChanIOBatchIx <- newChan
