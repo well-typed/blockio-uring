@@ -48,7 +48,7 @@ main_lowlevel filename = do
       lastBlock = fromIntegral (size `div` 4096 - 1)
       nqueue    = 64
       nbufs     = 64 * 4
-  withURing (URingParams nqueue) $ \uring ->
+  withURing (URingParams nqueue nbufs) $ \uring ->
     allocaBytes (4096 * nbufs) $ \bufptr -> do
       let submitBatch :: [(Int, Int)] -> IO ()
           submitBatch blocks = do
@@ -105,11 +105,8 @@ main_highlevel filename = do
   let size      = fileSize status
       lastBlock :: Int
       lastBlock = fromIntegral (size `div` 4096 - 1)
-      nbufs     = 64 * 4
-      params    = IOCtxParams {
-                    ioctxBatchSizeLimit   = 64,
-                    ioctxConcurrencyLimit = 64 * 4
-                  }
+      nbufs     = ioctxConcurrencyLimit params
+      params    = defaultIOCtxParams
       blocks    = V.fromList $ zip [0..] (randomPermute rng [0..lastBlock])
   bracket (initIOCtx params) closeIOCtx $ \ioctx -> do
     buf <- newPinnedByteArray (4096 * nbufs)
