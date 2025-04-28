@@ -30,17 +30,6 @@ jobs:
         include:
         - ghc: "9.6"
           cabal: "3.12"
-          os: ubuntu-20.04
-          liburing: "2.1"
-          # It's weird, but at the liburing-2.1 tag, the liburing.pc file lists
-          # a library version 2.0. From liburing-2.2 onward, the version listed
-          # in the liburing.pc file is no longer a mismatch.
-        - ghc: "9.6"
-          cabal: "3.12"
-          os: ubuntu-20.04
-          liburing: "2.9"
-        - ghc: "9.6"
-          cabal: "3.12"
           os: ubuntu-22.04
           liburing: "2.1"
         - ghc: "9.6"
