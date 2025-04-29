@@ -88,7 +88,7 @@ defaultIOCtxParams :: IOCtxParams
 defaultIOCtxParams =
   IOCtxParams {
     ioctxBatchSizeLimit   = 64,
-    ioctxConcurrencyLimit = 64 * 4
+    ioctxConcurrencyLimit = 64 * 3
   }
 
 withIOCtx :: IOCtxParams -> (IOCtx -> IO a) -> IO a
