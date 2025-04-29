@@ -49,7 +49,7 @@ main_lowlevel filename = do
       nqueue    = 64
       nbufs     = 64 * 4
   withURing (URingParams nqueue nbufs) $ \uring ->
-    allocaBytes (4096 * nbufs) $ \bufptr -> do
+    allocaBytesAligned (4096 * nbufs) 4096 $ \bufptr -> do
       let submitBatch :: [(Int, Int)] -> IO ()
           submitBatch blocks = do
             sequence_
@@ -109,7 +109,7 @@ main_highlevel filename = do
       params    = defaultIOCtxParams
       blocks    = V.fromList $ zip [0..] (randomPermute rng [0..lastBlock])
   bracket (initIOCtx params) closeIOCtx $ \ioctx -> do
-    buf <- newPinnedByteArray (4096 * nbufs)
+    buf <- newAlignedPinnedByteArray (4096 * nbufs) 4096
 
     before <- getCurrentTime
     forConcurrently_ (groupsOfN 32 blocks) $ \batch ->
