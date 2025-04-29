@@ -1,6 +1,8 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE InterruptibleFFI #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE RecordWildCards #-}
 
 {-# OPTIONS_GHC -fobject-code #-}
 
@@ -8,6 +10,7 @@ module System.IO.BlockIO.URingFFI where
 
 import Foreign
 import Foreign.C
+import Prelude hiding (head, tail)
 import System.Posix.Types
 
 #include <liburing.h>
@@ -25,6 +28,42 @@ foreign import capi unsafe "liburing.h io_uring_queue_init"
 
 foreign import capi unsafe "liburing.h io_uring_queue_exit"
   io_uring_queue_exit :: Ptr URing -> IO ()
+
+foreign import capi safe "liburing.h io_uring_queue_init_params"
+  io_uring_queue_init_params :: CUInt -> Ptr URing -> Ptr URingParams -> IO CInt
+
+iORING_SETUP_CQSIZE :: CUInt
+iORING_SETUP_CQSIZE = #{const IORING_SETUP_CQSIZE}
+
+data {-# CTYPE "liburing.h" "struct io_uring_params" #-}
+     URingParams = URingParams {
+                      sq_entries :: !CUInt,
+                      cq_entries :: !CUInt,
+                      flags      :: !CUInt,
+                      features   :: !CUInt
+                      -- Note: this is a subset of all the fields. These are
+                      -- just the ones we need now or are likely too need.
+                      -- If you need more, just add them.
+                    }
+  deriving stock (Show, Eq)
+
+instance Storable URingParams where
+  sizeOf    _    = #{size      struct io_uring_params}
+  alignment _    = #{alignment struct io_uring_params}
+  peek      p    = do sq_entries     <- #{peek struct io_uring_params, sq_entries} p
+                      cq_entries     <- #{peek struct io_uring_params, cq_entries} p
+                      flags          <- #{peek struct io_uring_params, flags} p
+                      features       <- #{peek struct io_uring_params, features} p
+                      return URingParams {..}
+  poke      p ps = do -- As we only cover a subset of the fields, we must clear
+                      -- the remaining fields we don't set to avoid them
+                      -- containing arbitrary values.
+                      fillBytes p 0 #{size struct io_uring_params}
+
+                      #{poke struct io_uring_params, sq_entries} p (sq_entries ps)
+                      #{poke struct io_uring_params, cq_entries} p (cq_entries ps)
+                      #{poke struct io_uring_params, flags} p (flags ps)
+                      #{poke struct io_uring_params, features} p (features ps)
 
 
 --

@@ -47,19 +47,40 @@ import qualified System.IO.BlockIO.URingFFI as FFI
 --
 
 newtype URing = URing (Ptr FFI.URing)
-newtype URingParams = URingParams { uringSize :: Int }
+data URingParams = URingParams {
+                     sizeSQRing :: !Int,
+                     sizeCQRing :: !Int
+                   }
 
 setupURing :: URingParams -> IO URing
-setupURing URingParams { uringSize } = do
+setupURing URingParams { sizeSQRing, sizeCQRing } = do
     uringptr <- malloc
-    throwErrnoResIfNegRetry_ "uringInit" $
-      FFI.io_uring_queue_init
-        (fromIntegral uringSize)
-        uringptr
-        flags
-    return (URing uringptr)
+    alloca $ \paramsptr -> do
+      poke paramsptr params
+      throwErrnoResIfNegRetry_ "setupURing" $
+        FFI.io_uring_queue_init_params
+          (fromIntegral sizeSQRing)
+          uringptr
+          paramsptr
+      params' <- peek paramsptr
+      when (fromIntegral sizeSQRing /= FFI.sq_entries params') $
+        setupFailure uringptr $ "unexected SQ ring size "
+                             ++ show (sizeSQRing, FFI.sq_entries params')
+      when (fromIntegral sizeCQRing > FFI.cq_entries params') $ do
+        setupFailure uringptr $ "unexected CQ ring size "
+                             ++ show (sizeCQRing, FFI.cq_entries params')
+      return (URing uringptr)
   where
-    flags = 0
+    flags  = FFI.iORING_SETUP_CQSIZE
+    params = FFI.URingParams {
+               FFI.sq_entries = 0,
+               FFI.cq_entries = fromIntegral sizeCQRing,
+               FFI.flags      = flags,
+               FFI.features   = 0
+             }
+    setupFailure uringptr msg = do
+      FFI.io_uring_queue_exit uringptr
+      throwIO (userError $ "setupURing initialisation failure: " ++ msg)
 
 closeURing :: URing -> IO ()
 closeURing (URing uringptr) = do

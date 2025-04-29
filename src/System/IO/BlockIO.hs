@@ -101,7 +101,7 @@ initIOCtx IOCtxParams {ioctxBatchSizeLimit, ioctxConcurrencyLimit} = do
 #endif
     mask_ $ do
       ioctxQSemN         <- newQSemN ioctxConcurrencyLimit
-      uring              <- URing.setupURing (URing.URingParams ioctxBatchSizeLimit)
+      uring              <- URing.setupURing (URing.URingParams ioctxBatchSizeLimit ioctxConcurrencyLimit)
       ioctxURing         <- newMVar (Just uring)
       ioctxChanIOBatch   <- newChan
       ioctxChanIOBatchIx <- newChan
