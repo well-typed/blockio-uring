@@ -32,7 +32,8 @@ foreign import capi unsafe "liburing.h io_uring_queue_exit"
 foreign import capi safe "liburing.h io_uring_queue_init_params"
   io_uring_queue_init_params :: CUInt -> Ptr URing -> Ptr URingParams -> IO CInt
 
-foreign import capi unsafe "liburing.h value IORING_SETUP_CQSIZE" iORING_SETUP_CQSIZE :: CUInt
+iORING_SETUP_CQSIZE :: CUInt
+iORING_SETUP_CQSIZE = #{const IORING_SETUP_CQSIZE}
 
 data {-# CTYPE "liburing.h" "struct io_uring_params" #-}
      URingParams = URingParams {

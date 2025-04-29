@@ -63,12 +63,12 @@ setupURing URingParams { sizeSQRing, sizeCQRing } = do
           uringptr
           paramsptr
       params' <- peek paramsptr
-      when (fromIntegral sizeSQRing /= FFI.sq_entries params') $ do
-        FFI.io_uring_queue_exit uringptr
-        throwIO (userError $ show (sizeSQRing, FFI.sq_entries params'))
+      when (fromIntegral sizeSQRing /= FFI.sq_entries params') $
+        setupFailure uringptr $ "unexected SQ ring size "
+                             ++ show (sizeSQRing, FFI.sq_entries params')
       when (fromIntegral sizeCQRing > FFI.cq_entries params') $ do
-        FFI.io_uring_queue_exit uringptr
-        throwIO (userError $ show (sizeCQRing, FFI.cq_entries params'))
+        setupFailure uringptr $ "unexected CQ ring size "
+                             ++ show (sizeCQRing, FFI.cq_entries params')
       return (URing uringptr)
   where
     flags  = FFI.iORING_SETUP_CQSIZE
@@ -78,6 +78,9 @@ setupURing URingParams { sizeSQRing, sizeCQRing } = do
                FFI.flags      = flags,
                FFI.features   = 0
              }
+    setupFailure uringptr msg = do
+      FFI.io_uring_queue_exit uringptr
+      throwIO (userError $ "setupURing initialisation failure: " ++ msg)
 
 closeURing :: URing -> IO ()
 closeURing (URing uringptr) = do
