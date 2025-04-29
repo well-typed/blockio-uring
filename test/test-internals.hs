@@ -33,8 +33,6 @@ tests = testGroup "test-internals" [
       testCase "example_simpleNoop 1" $ example_simpleNoop 1
     , testCase "example_simpleNoop maxBound" $ example_simpleNoop maxBound
     , testClassLaws "URingParams" $ storableLaws (Proxy @FFI.URingParams)
-    , testClassLaws "SQRingOffsets" $ storableLaws (Proxy @FFI.SQRingOffsets)
-    , testClassLaws "CQRingOffsets" $ storableLaws (Proxy @FFI.CQRingOffsets)
     ]
 
 example_simpleNoop :: Word64 -> Assertion
@@ -68,46 +66,7 @@ testClassLawsWith typename Laws {lawsTypeclass, lawsProperties} k =
 instance Arbitrary FFI.URingParams where
   arbitrary = FFI.URingParams
     <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-  shrink (FFI.URingParams a b c d e f g h i j k l) = [
-      FFI.URingParams a' b' c' d' e' f' g' h' i' j' k' l'
-    | (a', b', c', d', e', f', g', h', i', j', k', l')
-        <- shrink (a, b, c, d, e, f, g, h, i, j, k, l)
+  shrink (FFI.URingParams a b c d) = [
+      FFI.URingParams a' b' c' d'
+    | (a', b', c', d') <- shrink (a, b, c, d)
     ]
-
-instance Arbitrary FFI.SQRingOffsets where
-  arbitrary = FFI.SQRingOffsets
-    <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    <*> arbitrary
-  shrink (FFI.SQRingOffsets a b c d e f g h i) = [
-      FFI.SQRingOffsets a' b' c' d' e' f' g' h' i'
-    | (a', b', c', d', e', f', g', h', i') <- shrink (a, b, c, d, e, f, g, h, i)
-    ]
-
-instance Arbitrary FFI.CQRingOffsets where
-  arbitrary = FFI.CQRingOffsets
-    <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    <*> arbitrary
-  shrink (FFI.CQRingOffsets a b c d e f g h i) = [
-      FFI.CQRingOffsets a' b' c' d' e' f' g' h' i'
-    | (a', b', c', d', e', f', g', h', i') <- shrink (a, b, c, d, e, f, g, h, i)
-    ]
-
-instance ( Arbitrary a, Arbitrary b, Arbitrary c, Arbitrary d, Arbitrary e
-         , Arbitrary f, Arbitrary g, Arbitrary h, Arbitrary i, Arbitrary j
-         , Arbitrary k, Arbitrary l
-         )
-      => Arbitrary (a,b,c,d,e,f,g,h,i,j,k,l)
- where
-  arbitrary = return (,,,,,,,,,,,)
-          <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-          <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-          <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-
-  shrink (o, p, q, r, s, t, u, v, w, x, y, z) =
-    [ (o', p', q', r', s', t', u', v', w', x', y', z')
-    | (o', (p', (q', (r', (s', (t', (u', (v', (w', (x', (y', z')))))))))))
-      <- shrink (o, (p, (q, (r, (s, (t, (u, (v, (w, (x, (y, z))))))))))) ]

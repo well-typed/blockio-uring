@@ -48,9 +48,9 @@ import qualified System.IO.BlockIO.URingFFI as FFI
 
 newtype URing = URing (Ptr FFI.URing)
 data URingParams = URingParams {
-    sizeSQRing :: !Int
-  , sizeCQRing :: !Int
-  }
+                     sizeSQRing :: !Int,
+                     sizeCQRing :: !Int
+                   }
 
 setupURing :: URingParams -> IO URing
 setupURing URingParams { sizeSQRing, sizeCQRing } = do
@@ -71,21 +71,13 @@ setupURing URingParams { sizeSQRing, sizeCQRing } = do
         throwIO (userError $ show (sizeCQRing, FFI.cq_entries params'))
       return (URing uringptr)
   where
-    flags = FFI.iORING_SETUP_CQSIZE
+    flags  = FFI.iORING_SETUP_CQSIZE
     params = FFI.URingParams {
-        FFI.sq_entries = 0
-      , FFI.cq_entries = fromIntegral sizeCQRing
-      , FFI.flags = flags
-      , FFI.sq_thread_cpu = 0
-      , FFI.sq_thread_idle = 0
-      , FFI.features = 0
-      , FFI.wq_fd = 0
-      , FFI.resv1 = 0
-      , FFI.resv2 = 0
-      , FFI.resv3 = 0
-      , FFI.sq_off = FFI.SQRingOffsets 0 0 0 0 0 0 0 0 0
-      , FFI.cq_off = FFI.CQRingOffsets 0 0 0 0 0 0 0 0 0
-      }
+               FFI.sq_entries = 0,
+               FFI.cq_entries = fromIntegral sizeCQRing,
+               FFI.flags      = flags,
+               FFI.features   = 0
+             }
 
 closeURing :: URing -> IO ()
 closeURing (URing uringptr) = do
