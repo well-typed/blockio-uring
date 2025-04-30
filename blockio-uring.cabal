@@ -77,7 +77,7 @@ benchmark bench
     System.IO.BlockIO.URing
     System.IO.BlockIO.URingFFI
 
-  ghc-options:       -Wall -threaded
+  ghc-options:       -Wall -threaded -with-rtsopts=-T
 
 test-suite test
   import:           warnings
