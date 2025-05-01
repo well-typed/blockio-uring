@@ -167,6 +167,12 @@ closeIOCapCtx IOCapCtx {ioctxURing, ioctxCloseSync} = do
     case uringMay of
       Nothing -> putMVar ioctxURing Nothing
       Just uring -> do
+        --TODO: there's a problem with the keepAlives here. By sending the
+        -- Nop with maxBound we're telling the completionThread to shut down,
+        -- but this may be the only thing keeping the IO buffers from being
+        -- GCd. We could get heap corruption if we get a GC during shutdown.
+        -- We need to prevent new operations being submitted, and wait for all
+        -- existing operations to complete.
         URing.prepareNop uring (URing.IOOpId maxBound)
         URing.submitIO uring
         takeMVar ioctxCloseSync
@@ -240,6 +246,12 @@ submitCapIO ioctx@IOCapCtx {ioctxBatchSizeLimit'} !ioops
 submitCapIO ioctx@IOCapCtx {ioctxBatchSizeLimit'} !ioops0 =
     -- General case. Needs multiple batches and combining results, or the vector
     -- of I/O operations is empty.
+    --
+    --TODO: instead of the completion thread allocating result arrays
+    -- allocate them in the calling thread and have the completionThread
+    -- fill them in. Then for batches we can send in a bunch of slices of
+    -- a contiguous array, and then we can avoid having to re-combine them
+    -- at the end here.
     mask_ $ do
       iobatchCompletions <- prepAndSubmitIOBatches [] ioops0
       awaitIOBatches iobatchCompletions
@@ -339,10 +351,22 @@ data IOBatch = IOBatch {
                  iobatchKeepAlives :: V.Vector (IOOp IO)
                }
 
+-- | We submit and processes the completions in batches. This is the index into
+-- the tracking arrays of the batch.
 type IOBatchIx = Int
+
+-- | This is the index of an operation within a batch. The pair of the
+-- 'IOBatchIx' and 'IOOpIx' is needed to identity a specific operation within
+-- the tracking data structures.
 type IOOpIx    = Int
 
 {-# INLINE packIOOpId #-}
+-- | The pair of the 'IOBatchIx' and 'IOOpIx' is needed to identify a specific
+-- operation within the tracking data structures. We pair up the batch index
+-- and the intra-batch index into the operation identifier. This identifier is
+-- submitted with the operation and returned with the completion. Thus upon
+-- completion this allows us to match up the operation with the tracking data
+-- structures and process the operation completion.
 packIOOpId :: IOBatchIx -> IOOpIx -> URing.IOOpId
 packIOOpId batchix opix =
     URing.IOOpId $ unsafeShiftL (fromIntegral batchix) 32
@@ -359,6 +383,40 @@ unpackIOOpId (URing.IOOpId w64) =
     opix :: Int
     opix    = fromIntegral (w64 .&. 0xffffffff)
 
+-- Note: all these arrays are indexed by 'IOBatchIx'.
+--
+-- The 'counts' array keeps track (per batch) of the number of operations that
+-- remain to complete. When we processes the last operation in a batch we can
+-- complete the whole batch. Batch indexes that are not currently in use contain
+-- a count value of -1. This is used to identify when an operation completes
+-- that is for a previously unused batch index, and thus tells us we have a new
+-- batch and we need to find and set up the tracking information appropriately.
+--
+-- The 'results' array keeps track (per-batch) of the results of individual I/O
+-- operations. Each element is an array indexed by 'IOOpIx', containing the
+-- 'IOResult' for that operation. This result array is accumulated and then
+-- frozen and returned as the result for the batch. Batch indexes that are not
+-- currently in use contain an invalid entry.
+--
+-- The 'completions' array keeps track (per batch) of the completion MVar used
+-- to communicate the batch result back to the thread that submitted the batch.
+--
+-- The 'keepAlives' array ensures (per batch) that certain heap objects are kept
+-- live for the duration of the I/O operations in the batch. Specifically, it is
+-- the I/O buffers for each operation that we must keep live (otherwise if they
+-- were GC'd the kernel could scribble on top of whatever got placed there
+-- next). We reuse the original vector of IOOps that was submitted since this
+-- conveniently exists anyway and it contains the IOOps which themselves contain
+-- the I/O buffers. The 'keepAlives' entries are overwritten with 'invalidEntry'
+-- once they are no longer needed.
+--
+-- Algorithm outline:
+-- + wait for single IO result
+-- + if the count is -1, grab new batches from the chan (and process them)
+--   repeatedly until the batch count in question is found.
+-- + if the count is positive, decrement and update result array
+-- + if the count is now 0, also fill in the completion
+-- + reset count to -1, and result entries to invalid
 completionThread :: URing.URing
                  -> MVar ()
                  -> Int
@@ -408,12 +466,6 @@ completionThread !uring !done !maxc !qsem !chaniobatch !chaniobatchix = do
           signalQSemN qsem qrelease
         collectCompletion counts results completions keepAlives
 
-      -- wait for single IO result
-      -- if the count is positive, decrement and update result array
-      -- if the count is now 0, also fill in the completion
-      -- if the count was 0 before, grab next batch from the chan and process it
-      -- may have to do that repeatedly until the batch count in question is positive
-      -- reset count to -1, and result entries to undefined
       where
         collectIOBatches :: IOBatchIx -> IO Int
         collectIOBatches !iobatchixNeeded = do

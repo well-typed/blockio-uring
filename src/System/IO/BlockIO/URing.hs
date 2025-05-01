@@ -104,6 +104,8 @@ withURing params =
 -- Submitting I/O
 --
 
+-- | An identifier that is submitted with the I\/O operation and returned with
+-- the completion.
 newtype IOOpId = IOOpId Word64
   deriving (Eq, Ord, Bounded, Show)
 
