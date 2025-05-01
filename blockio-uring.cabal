@@ -24,9 +24,7 @@ maintainer:      duncan@well-typed.com
 copyright:       (c) Well-Typed LLP 2022 - 2024
 category:        System
 build-type:      Simple
-tested-with:
-  GHC ==8.10 || ==9.2 || ==9.4 || ==9.6 || ==9.8 || ==9.10 || ==9.12
-
+tested-with:     GHC ==9.2 || ==9.4 || ==9.6 || ==9.8 || ==9.10 || ==9.12
 extra-doc-files:
   CHANGELOG.md
   README.md
@@ -47,8 +45,8 @@ library
     System.IO.BlockIO.URingFFI
 
   build-depends:
-    , base       >=4.14    && <4.22
     , bitvec     ^>=1.1
+    , base       >=4.16  && <4.22
     , primitive  ^>=0.9
     , vector     ^>=0.13.2
 

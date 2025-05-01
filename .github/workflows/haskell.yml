@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["8.10", "9.2", "9.4", "9.6", "9.8", "9.10", "9.12"]
+        ghc: ["9.2", "9.4", "9.6", "9.8", "9.10", "9.12"]
         cabal: ["3.12"]
         os: [ubuntu-latest] # ubuntu-latest = ubuntu-24.04
         liburing: ["system"]

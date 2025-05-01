@@ -54,9 +54,7 @@ import GHC.Conc.Sync (labelThread)
 import Foreign.Ptr (plusPtr)
 import Foreign.C.Error (Errno(..))
 import System.Posix.Types (Fd (..), FileOffset, ByteCount)
-#if MIN_VERSION_base(4,16,0)
 import System.Posix.Internals (hostIsThreaded)
-#endif
 
 import qualified System.IO.BlockIO.URing as URing
 import           System.IO.BlockIO.URing (IOResult(..))
@@ -129,21 +127,18 @@ withIOCtx params = bracket (initIOCtx params) closeIOCtx
 
 initIOCtx :: IOCtxParams -> IO IOCtx
 initIOCtx ioctxparams = do
-#if MIN_VERSION_base(4,16,0)
     unless hostIsThreaded $ throwIO rtsNotThreaded
-#endif
     forM_ (validateIOCtxParams ioctxparams) $ throwIO . mkInvalidArgumentError
     ncaps <- getNumCapabilities
     IOCtx <$> V.generateM ncaps (initIOCapCtx ioctxparams)
   where
-#if MIN_VERSION_base(4,16,0)
     rtsNotThreaded =
         mkIOError
           illegalOperationErrorType
           "The run-time system should be threaded, make sure you are passing the -threaded flag"
           Nothing
           Nothing
-#endif
+
     mkInvalidArgumentError :: String -> IOError
     mkInvalidArgumentError msg =
         mkIOError
