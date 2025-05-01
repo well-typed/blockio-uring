@@ -43,9 +43,7 @@ import GHC.Conc.Sync (labelThread)
 import Foreign.Ptr (plusPtr)
 import Foreign.C.Error (Errno(..))
 import System.Posix.Types (Fd, FileOffset, ByteCount)
-#if MIN_VERSION_base(4,16,0)
 import System.Posix.Internals (hostIsThreaded)
-#endif
 
 import qualified System.IO.BlockIO.URing as URing
 import           System.IO.BlockIO.URing (IOResult(..))
@@ -100,12 +98,9 @@ withIOCtx params = bracket (initIOCtx params) closeIOCtx
 
 initIOCtx :: IOCtxParams -> IO IOCtx
 initIOCtx ioctxparams = do
-#if MIN_VERSION_base(4,16,0)
     unless hostIsThreaded $ throwIO rtsNotThreaded
-#endif
     ncaps <- getNumCapabilities
     IOCtx <$> V.generateM ncaps (initIOCapCtx ioctxparams)
-#if MIN_VERSION_base(4,16,0)
   where
     rtsNotThreaded =
         mkIOError
@@ -113,7 +108,6 @@ initIOCtx ioctxparams = do
           "The run-time system should be threaded, make sure you are passing the -threaded flag"
           Nothing
           Nothing
-#endif
 
 initIOCapCtx :: IOCtxParams -> CapNo -> IO IOCapCtx
 initIOCapCtx IOCtxParams {
