@@ -90,6 +90,7 @@ test-suite test
     , blockio-uring
     , primitive
     , tasty
+    , tasty-quickcheck
     , tasty-hunit
     , vector
 
