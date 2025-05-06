@@ -9,7 +9,7 @@ import Data.Primitive
 import qualified Data.Set as Set
 import Control.Monad
 import Control.Monad.Primitive (RealWorld)
-import Control.Monad.ST (ST)
+import Control.Monad.ST (ST, stToIO)
 import Control.Exception
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async as Async
@@ -152,26 +152,35 @@ main_highlevel useCache filename = do
         forRngSplitM ntasks rng $ \ n !rng_task ->
           Async.asyncOn n $ do
             buf <- newAlignedPinnedByteArray (4096 * batchsz) 4096
-            forRngSplitM_ nbatches rng_task $ \ _ !rng_batch ->
-              submitIO ioctx $
-                generateIOOpsBatch fd buf lastBlock batchsz rng_batch
+            -- Each thread gets its own reusable vector
+            (v, unsafeGenerateIOOpsBatch) <- stToIO $ mkGenerateIOOpsBatch fd buf lastBlock batchsz
+            forRngSplitM_ nbatches rng_task $ \ _ !rng_batch -> do
+              stToIO $ unsafeGenerateIOOpsBatch rng_batch
+              submitIO ioctx v
       _ <- Async.waitAnyCancel tasks
       return ()
 
-{-# NOINLINE generateIOOpsBatch #-}
-generateIOOpsBatch :: Posix.Fd
-                   -> MutableByteArray RealWorld
-                   -> Int
-                   -> Int
-                   -> Random.StdGen
-                   -> VU.Vector (IOOp RealWorld)
-generateIOOpsBatch !fd !buf !lastBlock !size !rng0 =
-    VU.create $ do
-      v <- VUM.new size
-      go v rng0 0
-      return v
+{-# NOINLINE mkGenerateIOOpsBatch #-}
+-- | Create a reusable vector and an /unsafe/ function to fill the vector with
+-- random elements.
+--
+-- The returned vector is immutable, but the filler function mutates the vector
+-- in place. The user should make sure not to use (e.g., read) the vector while
+-- it's being filled.
+mkGenerateIOOpsBatch :: Posix.Fd
+                     -> MutableByteArray RealWorld
+                     -> Int
+                     -> Int
+                     -> ST RealWorld ( VU.Vector (IOOp RealWorld)
+                                     , -- fill the vector with new randomly generated IOOps
+                                       Random.StdGen -> ST RealWorld ()
+                                     )
+mkGenerateIOOpsBatch !fd !buf !lastBlock !size = do
+    v <- VUM.new size
+    v' <- VU.unsafeFreeze v
+    pure (v', \rng -> go v rng 0)
   where
-    go :: VU.MVector s (IOOp RealWorld) -> Random.StdGen -> Int -> ST s ()
+    go :: VU.MVector RealWorld (IOOp RealWorld) -> Random.StdGen -> Int -> ST RealWorld ()
     go !_ !_   !i | i == size = return ()
     go !v !rng !i = do
       let (!block, !rng') = Random.uniformR (0, lastBlock) rng
