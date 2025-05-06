@@ -30,8 +30,9 @@ import qualified GHC.Stats as RTS
 import System.IO.BlockIO
 import System.IO.BlockIO.URing hiding (submitIO)
 import qualified System.IO.BlockIO.URing as URing
-import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as VM
+
+import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector.Unboxed.Mutable as VUM
 
 main :: IO ()
 main = do
@@ -163,20 +164,20 @@ generateIOOpsBatch :: Posix.Fd
                    -> Int
                    -> Int
                    -> Random.StdGen
-                   -> V.Vector (IOOp RealWorld)
+                   -> VU.Vector (IOOp RealWorld)
 generateIOOpsBatch !fd !buf !lastBlock !size !rng0 =
-    V.create $ do
-      v <- VM.new size
+    VU.create $ do
+      v <- VUM.new size
       go v rng0 0
       return v
   where
-    go :: V.MVector s (IOOp RealWorld) -> Random.StdGen -> Int -> ST s ()
+    go :: VU.MVector s (IOOp RealWorld) -> Random.StdGen -> Int -> ST s ()
     go !_ !_   !i | i == size = return ()
     go !v !rng !i = do
       let (!block, !rng') = Random.uniformR (0, lastBlock) rng
           !bufOff   = i * 4096
           !blockoff = fromIntegral (block * 4096)
-      VM.unsafeWrite v i $! IOOpRead fd blockoff buf bufOff 4096
+      VUM.unsafeWrite v i $! IOOpRead fd blockoff buf bufOff 4096
       go v rng' (i+1)
 
 {-# INLINE forRngSplitM_ #-}
