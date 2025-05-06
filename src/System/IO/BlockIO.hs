@@ -210,9 +210,8 @@ closeIOCapCtx IOCapCtx {ioctxURing, ioctxCloseSync} = do
 -- | The 'MutableByteArray' buffers within __must__ be pinned. Addresses into
 -- these buffers are passed to @io_uring@, and the buffers must therefore not be
 -- moved around.
-data IOOp m = IOOpRead  !Fd !FileOffset !(MutableByteArray (PrimState m)) !Int !ByteCount
-            | IOOpWrite !Fd !FileOffset !(MutableByteArray (PrimState m)) !Int !ByteCount
-
+data IOOp s = IOOpRead  !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
+            | IOOpWrite !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
 
 -- | Submit a batch of I\/O operations, and wait for them all to complete.
 -- The sequence of results matches up with the sequence of operations.
@@ -250,7 +249,7 @@ data IOOp m = IOOpRead  !Fd !FileOffset !(MutableByteArray (PrimState m)) !Int !
 --   the target depth, fill it up to double again. This way there is always
 --   at least the target number in flight at once.
 --
-submitIO :: IOCtx -> V.Vector (IOOp IO) -> IO (VU.Vector IOResult)
+submitIO :: IOCtx -> V.Vector (IOOp RealWorld) -> IO (VU.Vector IOResult)
 submitIO (IOCtx capctxs) !ioops = do
     -- Find out which capability the thread is currently running on and use
     -- that one. It does _not matter_ for correctness if the thread is migrated
@@ -262,7 +261,7 @@ submitIO (IOCtx capctxs) !ioops = do
     let !capctx = capctxs V.! (capno `mod` V.length capctxs)
     submitCapIO capctx ioops
 
-submitCapIO :: IOCapCtx -> V.Vector (IOOp IO) -> IO (VU.Vector IOResult)
+submitCapIO :: IOCapCtx -> V.Vector (IOOp RealWorld) -> IO (VU.Vector IOResult)
 submitCapIO ioctx@IOCapCtx {ioctxBatchSizeLimit'} !ioops
     -- Typical small case. We can be more direct.
   | V.length ioops > 0 && V.length ioops <= ioctxBatchSizeLimit'
@@ -298,7 +297,7 @@ submitCapIO ioctx@IOCapCtx {ioctxBatchSizeLimit'} !ioops0 =
 
 -- Must be called with async exceptions masked. See mask_ above in submitIO.
 prepAndSubmitIOBatch :: IOCapCtx
-                     -> V.Vector (IOOp IO)
+                     -> V.Vector (IOOp RealWorld)
                      -> MVar (VU.Vector IOResult)
                      -> IO ()
 prepAndSubmitIOBatch IOCapCtx {
@@ -376,7 +375,7 @@ data IOBatch = IOBatch {
                  -- | The list of I\/O operations is sent to the completion
                  -- thread so that the buffers are kept alive while the kernel
                  -- is using them.
-                 iobatchKeepAlives :: V.Vector (IOOp IO)
+                 iobatchKeepAlives :: V.Vector (IOOp RealWorld)
                }
 
 -- | We submit and processes the completions in batches. This is the index into
@@ -463,7 +462,7 @@ completionThread !uring !done !maxc !qsem !chaniobatch !chaniobatchix = do
     collectCompletion :: VUM.MVector RealWorld Int
                       -> VM.MVector  RealWorld (VUM.MVector RealWorld IOResult)
                       -> VM.MVector  RealWorld (MVar (VU.Vector IOResult))
-                      -> VM.MVector  RealWorld (V.Vector (IOOp IO))
+                      -> VM.MVector  RealWorld (V.Vector (IOOp RealWorld))
                       -> IO ()
     collectCompletion !counts !results !completions !keepAlives = do
       iocompletion <- URing.awaitIO uring

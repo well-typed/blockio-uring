@@ -163,14 +163,14 @@ generateIOOpsBatch :: Posix.Fd
                    -> Int
                    -> Int
                    -> Random.StdGen
-                   -> V.Vector (IOOp IO)
+                   -> V.Vector (IOOp RealWorld)
 generateIOOpsBatch !fd !buf !lastBlock !size !rng0 =
     V.create $ do
       v <- VM.new size
       go v rng0 0
       return v
   where
-    go :: V.MVector s (IOOp IO) -> Random.StdGen -> Int -> ST s ()
+    go :: V.MVector s (IOOp RealWorld) -> Random.StdGen -> Int -> ST s ()
     go !_ !_   !i | i == size = return ()
     go !v !rng !i = do
       let (!block, !rng') = Random.uniformR (0, lastBlock) rng
