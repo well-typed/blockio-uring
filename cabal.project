@@ -1,6 +1,14 @@
 index-state:
   -- Bump this if you need newer packages from Hackage
   -- current date: ghc-9.12
-  , hackage.haskell.org 2025-02-11T00:00:00Z
+  , hackage.haskell.org 2025-04-30T00:00:00Z
 
 packages: .
+
+-- TODO: adds O_DIRECT handling, remove once unix-2.8.7.0 is released
+source-repository-package
+  type: git
+  location: https://github.com/haskell/unix
+  tag: d2992117a9fa3fd70e67ef5d9a024b43f84f50bd
+  post-checkout-command: autoreconf -i
+
