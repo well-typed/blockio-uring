@@ -1,6 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module System.IO.BlockIO (
 
@@ -87,6 +90,7 @@ data IOCtxParams = IOCtxParams {
                      ioctxBatchSizeLimit   :: !Int,
                      ioctxConcurrencyLimit :: !Int
                    }
+  deriving stock Show
 
 defaultIOCtxParams :: IOCtxParams
 defaultIOCtxParams =
@@ -94,6 +98,22 @@ defaultIOCtxParams =
     ioctxBatchSizeLimit   = 64,
     ioctxConcurrencyLimit = 64 * 3
   }
+
+validateIOCtxParams :: IOCtxParams -> Maybe String
+validateIOCtxParams IOCtxParams{..} = ("IOCtxParams are invalid because " ++) <$>
+    if
+      | ioctxBatchSizeLimit <= 0
+      -> Just "the batch size limit is non-positive"
+      | ioctxBatchSizeLimit >= 2^(15 :: Int)
+      -> Just "the batch size limit is greater than or equal to 2^15"
+      | ioctxConcurrencyLimit <= 0
+      -> Just "the concurrency limit is non-positive"
+      | ioctxConcurrencyLimit >= 2^(16 :: Int)
+      -> Just "the concurrency limit is greater than or equal to 2^16"
+      | ioctxBatchSizeLimit > ioctxConcurrencyLimit
+      -> Just "the batch size limit exceeds the concurrency limit"
+      | otherwise
+      -> Nothing
 
 withIOCtx :: IOCtxParams -> (IOCtx -> IO a) -> IO a
 withIOCtx params = bracket (initIOCtx params) closeIOCtx
@@ -103,10 +123,11 @@ initIOCtx ioctxparams = do
 #if MIN_VERSION_base(4,16,0)
     unless hostIsThreaded $ throwIO rtsNotThreaded
 #endif
+    forM_ (validateIOCtxParams ioctxparams) $ throwIO . mkInvalidArgumentError
     ncaps <- getNumCapabilities
     IOCtx <$> V.generateM ncaps (initIOCapCtx ioctxparams)
-#if MIN_VERSION_base(4,16,0)
   where
+#if MIN_VERSION_base(4,16,0)
     rtsNotThreaded =
         mkIOError
           illegalOperationErrorType
@@ -114,6 +135,13 @@ initIOCtx ioctxparams = do
           Nothing
           Nothing
 #endif
+    mkInvalidArgumentError :: String -> IOError
+    mkInvalidArgumentError msg =
+        mkIOError
+          InvalidArgument
+          msg
+          Nothing
+          Nothing
 
 initIOCapCtx :: IOCtxParams -> CapNo -> IO IOCapCtx
 initIOCapCtx IOCtxParams {

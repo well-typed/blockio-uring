@@ -71,9 +71,11 @@ setupURing URingParams { sizeSQRing, sizeCQRing } = do
           uringptr
           paramsptr
       params' <- peek paramsptr
-      when (fromIntegral sizeSQRing /= FFI.sq_entries params') $
+      -- liburing rounds up the size of the SQ ring to the nearest power of 2
+      when (fromIntegral sizeSQRing > FFI.sq_entries params') $
         setupFailure uringptr $ "unexected SQ ring size "
                              ++ show (sizeSQRing, FFI.sq_entries params')
+      -- liburing rounds up the size of the CQ ring to the nearest power of 2
       when (fromIntegral sizeCQRing > FFI.cq_entries params') $ do
         setupFailure uringptr $ "unexected CQ ring size "
                              ++ show (sizeCQRing, FFI.cq_entries params')
