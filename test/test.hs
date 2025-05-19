@@ -1,15 +1,16 @@
-{-# LANGUAGE RecordWildCards  #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns     #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
+
+{- HLINT ignore "Use camelCase" -}
 
 module Main (main) where
 
 import           Control.Exception        (Exception (displayException),
                                            IOException, SomeException, try)
+import           Control.Monad            (void)
 import           Data.List                (isPrefixOf)
 import qualified Data.Primitive.ByteArray as P
-import           GHC.IO.Exception         (IOException (ioe_description, ioe_location))
 import qualified Data.Vector.Unboxed      as VU
+import           GHC.IO.Exception         (IOException (ioe_location))
 import           GHC.IO.FD                (FD (..))
 import           GHC.IO.Handle.FD         (handleToFd)
 import           System.IO
@@ -44,7 +45,7 @@ example_initReadClose size = do
         -- handleToFd is available since base-4.16.0.0
         FD { fdFD = fromIntegral -> fd } <- handleToFd hdl
         mba <- P.newPinnedByteArray 10 -- TODO: shouldn't use the same array for all ops :)
-        submitIO ctx $ VU.replicate size $
+        void $ submitIO ctx $ VU.replicate size $
             IOOpRead fd 0 mba 0 10
     closeIOCtx ctx
 
@@ -77,7 +78,7 @@ prop_ValidIOCtxParams params@IOCtxParams{..} =
     checkCoverage $
     coverTable "Result" [("Success", 5)] $
     ioProperty $ do
-      eith <- try @IOException $ withIOCtx params $ \ctx -> pure ()
+      eith <- try @IOException $ withIOCtx params $ \_ctx -> pure ()
       pure $ case eith of
         Left e
           |  "IOCtxParams are invalid" `isPrefixOf` ioe_location e
@@ -129,11 +130,11 @@ minExponent = 0
 maxExponent = 20
 
 chooseNonNegativeInt :: Gen Int
-chooseNonNegativeInt = chooseInt (lb, ub)
+chooseNonNegativeInt = chooseInt (minValue, maxValue)
 
 shrinkNonNegativeInt :: Int -> [Int]
 shrinkNonNegativeInt x = [ x' | NonNegative x' <- shrink (NonNegative x) ]
 
-lb, ub :: Int
-lb = 0
-ub = 2^maxExponent
+minValue, maxValue :: Int
+minValue = 0
+maxValue = 2^maxExponent

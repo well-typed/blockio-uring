@@ -1,10 +1,9 @@
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE InterruptibleFFI #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 {-# OPTIONS_GHC -fobject-code #-}
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
 
 module System.IO.BlockIO.URingFFI where
 
@@ -106,7 +105,7 @@ data {-# CTYPE "liburing.h" "struct io_uring_cqe" #-}
                   cqe_data  :: !CULong,
                   cqe_res   :: !CInt
                 }
-  deriving Show
+  deriving stock Show
 
 instance Storable URingCQE where
   sizeOf    _ = #{size      struct io_uring_cqe}

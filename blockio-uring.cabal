@@ -34,10 +34,29 @@ source-repository head
   location: https://github.com/well-typed/blockio-uring
 
 common warnings
-  ghc-options: -Wunused-packages
+  ghc-options:
+    -Wall -Wcompat -Wincomplete-uni-patterns
+    -Wincomplete-record-updates -Wpartial-fields -Widentities
+    -Wredundant-constraints -Wmissing-export-lists
+    -Wno-unticked-promoted-constructors -Wunused-packages
+
+  ghc-options: -Werror=missing-deriving-strategies
+
+common language
+  default-language:   GHC2021
+  default-extensions:
+    DeriveAnyClass
+    DerivingStrategies
+    DerivingVia
+    ExplicitNamespaces
+    GADTs
+    LambdaCase
+    RecordWildCards
+    RoleAnnotations
+    ViewPatterns
 
 library
-  import:            warnings
+  import:            language, warnings
   exposed-modules:   System.IO.BlockIO
   hs-source-dirs:    src
   other-modules:
@@ -45,18 +64,15 @@ library
     System.IO.BlockIO.URingFFI
 
   build-depends:
+    , base       >=4.16    && <4.22
     , bitvec     ^>=1.1
-    , base       >=4.16  && <4.22
     , primitive  ^>=0.9
     , vector     ^>=0.13.2
 
   pkgconfig-depends: liburing >=2.0 && <2.10
-  default-language:  Haskell2010
-  ghc-options:       -Wall
 
 benchmark bench
-  import:            warnings
-  default-language:  Haskell2010
+  import:            language, warnings
   type:              exitcode-stdio-1.0
   hs-source-dirs:    benchmark src
   main-is:           Bench.hs
@@ -68,7 +84,7 @@ benchmark bench
     , primitive
     , random
     , time
-    , unix ^>=2.8.7.0
+    , unix        ^>=2.8.7.0
     , vector
 
   pkgconfig-depends: liburing
@@ -77,28 +93,26 @@ benchmark bench
     System.IO.BlockIO.URing
     System.IO.BlockIO.URingFFI
 
-  ghc-options:       -Wall -threaded -with-rtsopts=-T
+  ghc-options:       -threaded -with-rtsopts=-T
 
 test-suite test
-  import:           warnings
-  default-language: Haskell2010
-  type:             exitcode-stdio-1.0
-  hs-source-dirs:   test
-  main-is:          test.hs
+  import:         language, warnings
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        test.hs
   build-depends:
     , base
     , blockio-uring
     , primitive
     , tasty
-    , tasty-quickcheck
     , tasty-hunit
+    , tasty-quickcheck
     , vector
 
-  ghc-options:      -threaded
+  ghc-options:    -threaded
 
 test-suite test-internals
-  import:            warnings
-  default-language:  Haskell2010
+  import:            language, warnings
   type:              exitcode-stdio-1.0
   hs-source-dirs:    test src
   main-is:           test-internals.hs
