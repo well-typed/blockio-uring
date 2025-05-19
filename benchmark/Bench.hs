@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
 {- HLINT ignore "Use camelCase" -}
 
 module Main (main) where
@@ -17,6 +18,7 @@ import Foreign
 import System.Posix.IO
 import System.Posix.Files
 import System.Posix.Types as Posix
+import System.Posix.Fcntl
 
 import System.Random as Random
 import System.Environment
@@ -35,20 +37,35 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
-    ["low",  filename] -> main_lowlevel  filename
-    ["high", filename] -> main_highlevel filename
+    [level,  cache, filename]
+      | Just main_func <- parseLevel level
+      , Just useCache <- parseCacheFlag cache
+      -> main_func useCache filename
     _   -> do
-      putStrLn "Usage: Bench [low|high] [DataFile]"
+      putStrLn "Usage: Bench [low|high] [Cache|NoCache] [DataFile]"
       exitFailure
+  where
+    parseLevel = \case
+      "low" -> Just main_lowlevel
+      "high" -> Just main_highlevel
+      _ -> Nothing
+    parseCacheFlag = \case
+      "Cache" -> Just True
+      "NoCache" -> Just False
+      _ -> Nothing
 
-main_lowlevel :: FilePath -> IO ()
-main_lowlevel filename = do
+main_lowlevel :: Bool -> FilePath -> IO ()
+main_lowlevel useCache filename = do
   putStrLn "Low-level API benchmark"
 #if MIN_VERSION_unix(2,8,0)
   fd <- openFd filename ReadOnly defaultFileFlags
 #else
   fd <- openFd filename ReadOnly Nothing defaultFileFlags
 #endif
+
+  fileSetCaching fd useCache
+  putStrLn $ "File caching:    " ++ show useCache
+
   status <- getFdStatus fd
   let size      = fileSize status
       lastBlock :: Int
@@ -98,14 +115,18 @@ main_lowlevel filename = do
 
 
 {-# NOINLINE main_highlevel #-}
-main_highlevel :: FilePath -> IO ()
-main_highlevel filename = do
+main_highlevel :: Bool -> FilePath -> IO ()
+main_highlevel useCache filename = do
   putStrLn "High-level API benchmark"
 #if MIN_VERSION_unix(2,8,0)
   fd     <- openFd filename ReadOnly defaultFileFlags
 #else
   fd     <- openFd filename ReadOnly Nothing defaultFileFlags
 #endif
+
+  fileSetCaching fd useCache
+  putStrLn $ "File caching:    " ++ show useCache
+
   status <- getFdStatus fd
   rng    <- initStdGen
   ncaps  <- getNumCapabilities
@@ -121,8 +142,8 @@ main_highlevel filename = do
       nbatches  = lastBlock `div` (ntasks * batchsz) -- batches per task
       totalOps  = nbatches * batchsz * ntasks
 
-  putStrLn $ "Capabilities:   " ++ show ncaps
-  putStrLn $ "Threads     :   " ++ show ntasks
+  putStrLn $ "Capabilities:    " ++ show ncaps
+  putStrLn $ "Threads     :    " ++ show ntasks
 
   bracket (initIOCtx params) closeIOCtx $ \ioctx ->
     withReport totalOps $ do
@@ -167,7 +188,7 @@ forRngSplitM_ :: Monad m
 forRngSplitM_ n rng0 action = go 0 rng0
   where
     go !i !_   | i == n = return ()
-    go !i !rng = let (!rng', !rng'') = Random.split rng
+    go !i !rng = let (!rng', !rng'') = Random.splitGen rng
                   in action i rng' >> go (i+1) rng''
 
 {-# INLINE forRngSplitM #-}
@@ -179,7 +200,7 @@ forRngSplitM :: Monad m
 forRngSplitM n rng0 action = go [] 0 rng0
   where
     go acc !i !_   | i == n = return (reverse acc)
-    go acc !i !rng = let (!rng', !rng'') = Random.split rng
+    go acc !i !rng = let (!rng', !rng'') = Random.splitGen rng
                       in action i rng' >>= \x -> go (x:acc) (i+1) rng''
 
 {-# INLINE withReport #-}

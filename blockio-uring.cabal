@@ -68,7 +68,7 @@ benchmark bench
     , primitive
     , random
     , time
-    , unix
+    , unix ^>=2.8.7.0
     , vector
 
   pkgconfig-depends: liburing
