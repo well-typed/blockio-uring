@@ -8,8 +8,8 @@ import           Control.Exception        (Exception (displayException),
                                            IOException, SomeException, try)
 import           Data.List                (isPrefixOf)
 import qualified Data.Primitive.ByteArray as P
-import qualified Data.Vector              as V
 import           GHC.IO.Exception         (IOException (ioe_description, ioe_location))
+import qualified Data.Vector.Unboxed      as VU
 import           GHC.IO.FD                (FD (..))
 import           GHC.IO.Handle.FD         (handleToFd)
 import           System.IO
@@ -44,14 +44,14 @@ example_initReadClose size = do
         -- handleToFd is available since base-4.16.0.0
         FD { fdFD = fromIntegral -> fd } <- handleToFd hdl
         mba <- P.newPinnedByteArray 10 -- TODO: shouldn't use the same array for all ops :)
-        submitIO ctx $ V.replicate size $
+        submitIO ctx $ VU.replicate size $
             IOOpRead fd 0 mba 0 10
     closeIOCtx ctx
 
 example_initEmptyClose :: Assertion
 example_initEmptyClose = do
     ctx <- initIOCtx defaultIOCtxParams
-    _ <- submitIO ctx V.empty
+    _ <- submitIO ctx VU.empty
     closeIOCtx ctx
 
 example_closeIsIdempotent :: Assertion
