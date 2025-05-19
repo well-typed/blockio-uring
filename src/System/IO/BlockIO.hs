@@ -31,7 +31,7 @@ module System.IO.BlockIO (
 
 import Data.Bit
 import Data.Bits
-import Data.Primitive (Prim)
+import Data.Int (Int64)
 import Data.Primitive.ByteArray
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as VM
@@ -52,9 +52,8 @@ import GHC.IO.Exception (IOErrorType(ResourceVanished, InvalidArgument))
 import GHC.Conc.Sync (labelThread)
 
 import Foreign.Ptr (plusPtr)
-import Foreign.C (CInt, CSize)
 import Foreign.C.Error (Errno(..))
-import System.Posix.Types (Fd (..), FileOffset, ByteCount, COff)
+import System.Posix.Types (Fd (..), FileOffset, ByteCount)
 #if MIN_VERSION_base(4,16,0)
 import System.Posix.Internals (hostIsThreaded)
 #endif
@@ -63,8 +62,6 @@ import qualified System.IO.BlockIO.URing as URing
 import           System.IO.BlockIO.URing (IOResult(..))
 import qualified Data.Vector.Generic.Mutable as VGM
 import qualified Data.Vector.Generic as VG
-import qualified Data.Vector.Primitive.Mutable as VP
-import qualified Data.Vector.Primitive as VP
 
 -- | IO context: a handle used by threads submitting IO batches.
 --
@@ -225,53 +222,33 @@ closeIOCapCtx IOCapCtx {ioctxURing, ioctxCloseSync} = do
 data IOOp s = IOOpRead  !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
             | IOOpWrite !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
 
-type UReprIOOp s = (Bit, UCInt, UCOff, VU.DoNotUnboxStrict (MutableByteArray s), Int, UCSize)
+-- Pseudo-representation used for the Unbox instance (via IsoUnbox).
+type UReprIOOp s = (Bit, Int, Int64,
+                    VU.DoNotUnboxStrict (MutableByteArray s),
+                    Int, Word)
 
 instance VU.IsoUnbox (IOOp s) (UReprIOOp s) where
   {-# INLINE toURepr #-}
   toURepr (IOOpRead (Fd !fd) !off !buf !bufOff !cnt) =
-      (Bit True, UCInt fd, UCOff off, VU.DoNotUnboxStrict buf, bufOff, UCSize cnt)
+      (Bit True, fromIntegral fd, fromIntegral off,
+       VU.DoNotUnboxStrict buf, fromIntegral bufOff, fromIntegral cnt)
   toURepr (IOOpWrite (Fd !fd) !off !buf !bufOff !cnt) =
-      (Bit False, UCInt fd, UCOff off, VU.DoNotUnboxStrict buf, bufOff, UCSize cnt)
+      (Bit False, fromIntegral fd, fromIntegral off,
+       VU.DoNotUnboxStrict buf, fromIntegral bufOff, fromIntegral cnt)
   {-# INLINE fromURepr #-}
-  fromURepr (Bit !rw, UCInt !fd, UCOff !off, VU.DoNotUnboxStrict !buf, !bufOff, UCSize !cnt) =
+  fromURepr (Bit !rw, !fd, !off, VU.DoNotUnboxStrict !buf, !bufOff, !cnt) =
     if rw then
-      IOOpRead (Fd fd) off buf bufOff cnt
+      IOOpRead (Fd (fromIntegral fd)) (fromIntegral off)
+               buf (fromIntegral bufOff) (fromIntegral cnt)
     else
-      IOOpWrite (Fd fd) off buf bufOff cnt
+      IOOpWrite (Fd (fromIntegral fd)) (fromIntegral off)
+                buf (fromIntegral bufOff) (fromIntegral cnt)
 
 newtype instance VUM.MVector s1 (IOOp s2) = MV_IOOp (VU.MVector s1 (UReprIOOp s2))
 newtype instance VU.Vector      (IOOp s2) = V_IOOp  (VU.Vector     (UReprIOOp s2))
 deriving via (IOOp s `VU.As` UReprIOOp s) instance VGM.MVector VUM.MVector (IOOp s)
 deriving via (IOOp s `VU.As` UReprIOOp s) instance VG.Vector VU.Vector (IOOp s)
 instance VU.Unbox (IOOp s)
-
-newtype UCInt = UCInt CInt
-  deriving newtype Prim
-
-newtype instance VUM.MVector s UCInt = MV_UCInt (VP.MVector s CInt)
-newtype instance VU.Vector     UCInt = V_UCInt  (VP.Vector    CInt)
-deriving via VU.UnboxViaPrim CInt instance VGM.MVector VU.MVector UCInt
-deriving via VU.UnboxViaPrim CInt instance VG.Vector   VU.Vector  UCInt
-instance VU.Unbox UCInt
-
-newtype UCOff = UCOff COff
-  deriving newtype Prim
-
-newtype instance VUM.MVector s UCOff = MV_UCOff (VP.MVector s COff)
-newtype instance VU.Vector     UCOff = V_UCOff  (VP.Vector    COff)
-deriving via VU.UnboxViaPrim COff instance VGM.MVector VU.MVector UCOff
-deriving via VU.UnboxViaPrim COff instance VG.Vector   VU.Vector  UCOff
-instance VU.Unbox UCOff
-
-newtype UCSize = UCSize CSize
-  deriving newtype Prim
-
-newtype instance VUM.MVector s UCSize = MV_UCSize (VP.MVector s CSize)
-newtype instance VU.Vector     UCSize = V_UCSize  (VP.Vector    CSize)
-deriving via VU.UnboxViaPrim CSize instance VGM.MVector VU.MVector UCSize
-deriving via VU.UnboxViaPrim CSize instance VG.Vector   VU.Vector  UCSize
-instance VU.Unbox UCSize
 
 -- | Submit a batch of I\/O operations, and wait for them all to complete.
 -- The sequence of results matches up with the sequence of operations.
