@@ -1,4 +1,6 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module System.IO.BlockIO (
@@ -13,10 +15,14 @@ module System.IO.BlockIO (
 
     -- * Performing I\/O
     submitIO,
-    IOOp(IOOpRead, IOOpWrite),
     IOResult(IOResult, IOError),
     ByteCount, Errno(..),
 
+    -- ** IOOps
+    IOOp(IOOpRead, IOOpWrite),
+    pattern V_IOOp, pattern MV_IOOp,
+    unzipIOOp, zipIOOp,
+    unzipIOOpMutable, zipIOOpMutable,
   ) where
 
 import Data.Bit
@@ -208,11 +214,9 @@ data IOOp s = IOOpRead  !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
             | IOOpWrite !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
 
 -- Pseudo-representation used for the Unbox instance (via IsoUnbox).
-type UReprIOOp s = (Bit, Int, Int64,
-                    VU.DoNotUnboxStrict (MutableByteArray s),
-                    Int, Word)
+#define UReprIOOp(s) (Bit, Int, Int64, VU.DoNotUnboxStrict (MutableByteArray s), Int, Word)
 
-instance VU.IsoUnbox (IOOp s) (UReprIOOp s) where
+instance VU.IsoUnbox (IOOp s) UReprIOOp(s) where
   {-# INLINE toURepr #-}
   toURepr (IOOpRead (Fd !fd) !off !buf !bufOff !cnt) =
       (Bit True, fromIntegral fd, fromIntegral off,
@@ -229,11 +233,61 @@ instance VU.IsoUnbox (IOOp s) (UReprIOOp s) where
       IOOpWrite (Fd (fromIntegral fd)) (fromIntegral off)
                 buf bufOff (fromIntegral cnt)
 
-newtype instance VUM.MVector s1 (IOOp s2) = MV_IOOp (VU.MVector s1 (UReprIOOp s2))
-newtype instance VU.Vector      (IOOp s2) = V_IOOp  (VU.Vector     (UReprIOOp s2))
-deriving via (IOOp s `VU.As` UReprIOOp s) instance VGM.MVector VUM.MVector (IOOp s)
-deriving via (IOOp s `VU.As` UReprIOOp s) instance VG.Vector VU.Vector (IOOp s)
+newtype instance VUM.MVector s1 (IOOp s2) = MV_IOOp (VU.MVector s1 UReprIOOp(s2))
+newtype instance VU.Vector      (IOOp s2) = V_IOOp  (VU.Vector     UReprIOOp(s2))
+deriving via (IOOp s `VU.As` UReprIOOp(s)) instance VGM.MVector VUM.MVector (IOOp s)
+deriving via (IOOp s `VU.As` UReprIOOp(s)) instance VG.Vector VU.Vector (IOOp s)
 instance VU.Unbox (IOOp s)
+
+{-# INLINE unzipIOOp #-}
+-- | \( O(1) \) Unzip an unboxed vector of 'IOOp's into its components.
+unzipIOOp ::
+     VU.Vector (IOOp s)
+  -> ( VU.Vector Bit
+     , VU.Vector Int
+     , VU.Vector Int64
+     , VU.Vector (VU.DoNotUnboxStrict (MutableByteArray s))
+     , VU.Vector Int
+     , VU.Vector Word
+     )
+unzipIOOp (V_IOOp v) = VU.unzip6 v
+
+{-# INLINE zipIOOp #-}
+-- | \( O(1) \) Zip an unboxed vector of 'IOOp's from its components.
+zipIOOp ::
+     VU.Vector Bit
+  -> VU.Vector Int
+  -> VU.Vector Int64
+  -> VU.Vector (VU.DoNotUnboxStrict (MutableByteArray s))
+  -> VU.Vector Int
+  -> VU.Vector Word
+  -> VU.Vector (IOOp s)
+zipIOOp a b c d e f = V_IOOp (VU.zip6 a b c d e f)
+
+{-# INLINE unzipIOOpMutable #-}
+-- | \( O(1) \) Unzip an unboxed, mutable vector of 'IOOp's into its components.
+unzipIOOpMutable ::
+     VUM.MVector s1 (IOOp s2)
+  -> ( VUM.MVector s1 Bit
+     , VUM.MVector s1 Int
+     , VUM.MVector s1 Int64
+     , VUM.MVector s1 (VU.DoNotUnboxStrict (MutableByteArray s2))
+     , VUM.MVector s1 Int
+     , VUM.MVector s1 Word
+     )
+unzipIOOpMutable (MV_IOOp v) = VUM.unzip6 v
+
+{-# INLINE zipIOOpMutable #-}
+-- | \( O(1) \) Zip an unboxed, mutable vector of 'IOOp's from its components.
+zipIOOpMutable ::
+     VUM.MVector s1 Bit
+  -> VUM.MVector s1 Int
+  -> VUM.MVector s1 Int64
+  -> VUM.MVector s1 (VU.DoNotUnboxStrict (MutableByteArray s2))
+  -> VUM.MVector s1 Int
+  -> VUM.MVector s1 Word
+  -> VUM.MVector s1 (IOOp s2)
+zipIOOpMutable a b c d e f = MV_IOOp (VUM.zip6 a b c d e f)
 
 -- | Submit a batch of I\/O operations, and wait for them all to complete.
 -- The sequence of results matches up with the sequence of operations.
