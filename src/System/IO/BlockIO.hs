@@ -1,15 +1,5 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralisedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 
 module System.IO.BlockIO (
 
@@ -226,18 +216,18 @@ instance VU.IsoUnbox (IOOp s) (UReprIOOp s) where
   {-# INLINE toURepr #-}
   toURepr (IOOpRead (Fd !fd) !off !buf !bufOff !cnt) =
       (Bit True, fromIntegral fd, fromIntegral off,
-       VU.DoNotUnboxStrict buf, fromIntegral bufOff, fromIntegral cnt)
+       VU.DoNotUnboxStrict buf, bufOff, fromIntegral cnt)
   toURepr (IOOpWrite (Fd !fd) !off !buf !bufOff !cnt) =
       (Bit False, fromIntegral fd, fromIntegral off,
-       VU.DoNotUnboxStrict buf, fromIntegral bufOff, fromIntegral cnt)
+       VU.DoNotUnboxStrict buf, bufOff, fromIntegral cnt)
   {-# INLINE fromURepr #-}
   fromURepr (Bit !rw, !fd, !off, VU.DoNotUnboxStrict !buf, !bufOff, !cnt) =
     if rw then
       IOOpRead (Fd (fromIntegral fd)) (fromIntegral off)
-               buf (fromIntegral bufOff) (fromIntegral cnt)
+               buf bufOff (fromIntegral cnt)
     else
       IOOpWrite (Fd (fromIntegral fd)) (fromIntegral off)
-                buf (fromIntegral bufOff) (fromIntegral cnt)
+                buf bufOff (fromIntegral cnt)
 
 newtype instance VUM.MVector s1 (IOOp s2) = MV_IOOp (VU.MVector s1 (UReprIOOp s2))
 newtype instance VU.Vector      (IOOp s2) = V_IOOp  (VU.Vector     (UReprIOOp s2))
@@ -536,13 +526,13 @@ completionThread !uring !done !maxc !qsem !chaniobatch !chaniobatchix = do
             } <- readChan chaniobatch
           oldcount <- VUM.read counts iobatchIx
           assert (oldcount == (-1)) (return ())
-          VUM.write counts iobatchIx (fromIntegral iobatchOpCount)
+          VUM.write counts iobatchIx iobatchOpCount
           result <- VUM.replicate iobatchOpCount (IOResult (-1))
           VM.write results iobatchIx result
           VM.write completions iobatchIx iobatchCompletion
           VM.write keepAlives iobatchIx iobatchKeepAlives
           if iobatchIx == iobatchixNeeded
-            then return $! fromIntegral iobatchOpCount
+            then return $! iobatchOpCount
             else collectIOBatches iobatchixNeeded
 
     {-# NOINLINE invalidEntry #-}

@@ -1,23 +1,12 @@
-{-# LANGUAGE DerivingStrategies  #-}
-{-# LANGUAGE NamedFieldPuns      #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving  #-}
-{-# LANGUAGE TypeApplications    #-}
-
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 {- HLINT ignore "Use camelCase" -}
 
 module Main (main) where
 
-import           Control.Concurrent         (threadDelay)
-import           Control.Exception          (SomeException, try)
-import           Control.Monad
+
 import           Data.Proxy
-import qualified Data.Vector.Storable       as VS
 import           Data.Word                  (Word64)
-import           System.IO                  (BufferMode (NoBuffering),
-                                             hSetBuffering)
 import           System.IO.BlockIO.URing
 import qualified System.IO.BlockIO.URingFFI as FFI
 import           Test.QuickCheck.Classes
@@ -44,8 +33,8 @@ example_simpleNoop n = do
     closeURing uring
     IOCompletion (IOOpId n) (IOResult 0) @=? completion
 
-deriving instance Eq IOCompletion
-deriving instance Show IOCompletion
+deriving stock instance Eq IOCompletion
+deriving stock instance Show IOCompletion
 
 {-------------------------------------------------------------------------------
   Storable

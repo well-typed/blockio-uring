@@ -1,12 +1,5 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module System.IO.BlockIO.URing (
     URing,
@@ -109,7 +102,7 @@ withURing params =
 -- | An identifier that is submitted with the I\/O operation and returned with
 -- the completion.
 newtype IOOpId = IOOpId Word64
-  deriving (Eq, Ord, Bounded, Show)
+  deriving stock (Eq, Ord, Bounded, Show)
 
 prepareRead :: URing -> Fd -> FileOffset -> Ptr Word8 -> ByteCount -> IOOpId -> IO ()
 prepareRead URing {uringptr} fd off buf len (IOOpId ioopid) = do
@@ -148,7 +141,7 @@ submitIO URing {uringptr} =
 data IOCompletion = IOCompletion !IOOpId !IOResult
 
 newtype IOResult = IOResult_ Int
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 {-# COMPLETE IOResult, IOError #-}
 
@@ -192,7 +185,7 @@ instance VU.Unbox IOResult
 
 -- | Must only be called from one thread at once.
 awaitIO :: URing -> IO IOCompletion
-awaitIO !URing {uringptr, cqeptrfptr} = do
+awaitIO URing {uringptr, cqeptrfptr} = do
       -- We use unsafeForeignPtrToPtr and touchForeignPtr here rather than
       -- withForeignPtr because using withForeignPtr defeats GHCs CPR analysis
       -- which causes the 'IOCompletion' result to be allocated on the heap
