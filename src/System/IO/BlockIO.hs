@@ -19,9 +19,7 @@ module System.IO.BlockIO (
 
   ) where
 
-import Data.Bit
 import Data.Bits
-import Data.Int (Int64)
 import Data.Primitive.ByteArray
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as VM
@@ -48,8 +46,6 @@ import System.Posix.Internals (hostIsThreaded)
 
 import qualified System.IO.BlockIO.URing as URing
 import           System.IO.BlockIO.URing (IOResult(..))
-import qualified Data.Vector.Generic.Mutable as VGM
-import qualified Data.Vector.Generic as VG
 
 -- | IO context: a handle used by threads submitting IO batches.
 --
@@ -207,34 +203,6 @@ closeIOCapCtx IOCapCtx {ioctxURing, ioctxCloseSync} = do
 data IOOp s = IOOpRead  !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
             | IOOpWrite !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
 
--- Pseudo-representation used for the Unbox instance (via IsoUnbox).
-type UReprIOOp s = (Bit, Int, Int64,
-                    VU.DoNotUnboxStrict (MutableByteArray s),
-                    Int, Word)
-
-instance VU.IsoUnbox (IOOp s) (UReprIOOp s) where
-  {-# INLINE toURepr #-}
-  toURepr (IOOpRead (Fd !fd) !off !buf !bufOff !cnt) =
-      (Bit True, fromIntegral fd, fromIntegral off,
-       VU.DoNotUnboxStrict buf, bufOff, fromIntegral cnt)
-  toURepr (IOOpWrite (Fd !fd) !off !buf !bufOff !cnt) =
-      (Bit False, fromIntegral fd, fromIntegral off,
-       VU.DoNotUnboxStrict buf, bufOff, fromIntegral cnt)
-  {-# INLINE fromURepr #-}
-  fromURepr (Bit !rw, !fd, !off, VU.DoNotUnboxStrict !buf, !bufOff, !cnt) =
-    if rw then
-      IOOpRead (Fd (fromIntegral fd)) (fromIntegral off)
-               buf bufOff (fromIntegral cnt)
-    else
-      IOOpWrite (Fd (fromIntegral fd)) (fromIntegral off)
-                buf bufOff (fromIntegral cnt)
-
-newtype instance VUM.MVector s1 (IOOp s2) = MV_IOOp (VU.MVector s1 (UReprIOOp s2))
-newtype instance VU.Vector      (IOOp s2) = V_IOOp  (VU.Vector     (UReprIOOp s2))
-deriving via (IOOp s `VU.As` UReprIOOp s) instance VGM.MVector VUM.MVector (IOOp s)
-deriving via (IOOp s `VU.As` UReprIOOp s) instance VG.Vector VU.Vector (IOOp s)
-instance VU.Unbox (IOOp s)
-
 -- | Submit a batch of I\/O operations, and wait for them all to complete.
 -- The sequence of results matches up with the sequence of operations.
 -- Any I\/O errors are reported in the result list, not as IO exceptions.
@@ -271,7 +239,7 @@ instance VU.Unbox (IOOp s)
 --   the target depth, fill it up to double again. This way there is always
 --   at least the target number in flight at once.
 --
-submitIO :: IOCtx -> VU.Vector (IOOp RealWorld) -> IO (VU.Vector IOResult)
+submitIO :: IOCtx -> V.Vector (IOOp RealWorld) -> IO (VU.Vector IOResult)
 submitIO (IOCtx capctxs) !ioops = do
     -- Find out which capability the thread is currently running on and use
     -- that one. It does _not matter_ for correctness if the thread is migrated
@@ -283,10 +251,10 @@ submitIO (IOCtx capctxs) !ioops = do
     let !capctx = capctxs V.! (capno `mod` V.length capctxs)
     submitCapIO capctx ioops
 
-submitCapIO :: IOCapCtx -> VU.Vector (IOOp RealWorld) -> IO (VU.Vector IOResult)
+submitCapIO :: IOCapCtx -> V.Vector (IOOp RealWorld) -> IO (VU.Vector IOResult)
 submitCapIO ioctx@IOCapCtx {ioctxBatchSizeLimit'} !ioops
     -- Typical small case. We can be more direct.
-  | VU.length ioops > 0 && VU.length ioops <= ioctxBatchSizeLimit'
+  | V.length ioops > 0 && V.length ioops <= ioctxBatchSizeLimit'
   = mask_ $ do
       iobatchCompletion <- newEmptyMVar
       prepAndSubmitIOBatch ioctx ioops iobatchCompletion
@@ -306,20 +274,20 @@ submitCapIO ioctx@IOCapCtx {ioctxBatchSizeLimit'} !ioops0 =
       awaitIOBatches iobatchCompletions
   where
     prepAndSubmitIOBatches acc !ioops
-      | VU.null ioops = return acc
+      | V.null ioops = return acc
       | otherwise = do
-          let batch = VU.take ioctxBatchSizeLimit' ioops
+          let batch = V.take ioctxBatchSizeLimit' ioops
           iobatchCompletion <- newEmptyMVar
           prepAndSubmitIOBatch ioctx batch iobatchCompletion
           prepAndSubmitIOBatches (iobatchCompletion:acc)
-                                 (VU.drop ioctxBatchSizeLimit' ioops)
+                                 (V.drop ioctxBatchSizeLimit' ioops)
 
     awaitIOBatches iobatchCompletions =
       VU.concat <$> mapM takeMVar (reverse iobatchCompletions)
 
 -- Must be called with async exceptions masked. See mask_ above in submitIO.
 prepAndSubmitIOBatch :: IOCapCtx
-                     -> VU.Vector (IOOp RealWorld)
+                     -> V.Vector (IOOp RealWorld)
                      -> MVar (VU.Vector IOResult)
                      -> IO ()
 prepAndSubmitIOBatch IOCapCtx {
@@ -329,7 +297,7 @@ prepAndSubmitIOBatch IOCapCtx {
                        ioctxChanIOBatchIx
                      }
                      !iobatch !iobatchCompletion = do
-    let !iobatchOpCount = VU.length iobatch
+    let !iobatchOpCount = V.length iobatch
     -- We're called with async exceptions masked, but 'waitQSemN' can block and
     -- receive exceptions. That's ok. But once we acquire the semaphore
     -- quantitiy we must eventully return it. There's two cases for returning:
@@ -356,7 +324,7 @@ prepAndSubmitIOBatch IOCapCtx {
       -- so we may still need to release the mvar on exception.
       flip onException (putMVar ioctxURing muring) $ do
         uring <- maybe (throwIO closed) pure muring
-        VU.iforM_ iobatch $ \ioopix ioop -> case ioop of
+        V.iforM_ iobatch $ \ioopix ioop -> case ioop of
           IOOpRead  fd off buf bufOff cnt -> do
             guardPinned buf
             URing.prepareRead  uring fd off
@@ -397,7 +365,7 @@ data IOBatch = IOBatch {
                  -- | The list of I\/O operations is sent to the completion
                  -- thread so that the buffers are kept alive while the kernel
                  -- is using them.
-                 iobatchKeepAlives :: VU.Vector (IOOp RealWorld)
+                 iobatchKeepAlives :: V.Vector (IOOp RealWorld)
                }
 
 -- | We submit and processes the completions in batches. This is the index into
@@ -484,7 +452,7 @@ completionThread !uring !done !maxc !qsem !chaniobatch !chaniobatchix = do
     collectCompletion :: VUM.MVector RealWorld Int
                       -> VM.MVector  RealWorld (VUM.MVector RealWorld IOResult)
                       -> VM.MVector  RealWorld (MVar (VU.Vector IOResult))
-                      -> VM.MVector  RealWorld (VU.Vector (IOOp RealWorld))
+                      -> VM.MVector  RealWorld (V.Vector (IOOp RealWorld))
                       -> IO ()
     collectCompletion !counts !results !completions !keepAlives = do
       iocompletion <- URing.awaitIO uring

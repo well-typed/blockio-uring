@@ -31,8 +31,8 @@ import System.IO.BlockIO
 import System.IO.BlockIO.URing hiding (submitIO)
 import qualified System.IO.BlockIO.URing as URing
 
-import qualified Data.Vector.Unboxed as VU
-import qualified Data.Vector.Unboxed.Mutable as VUM
+import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as VM
 
 main :: IO ()
 main = do
@@ -171,22 +171,22 @@ mkGenerateIOOpsBatch :: Posix.Fd
                      -> MutableByteArray RealWorld
                      -> Int
                      -> Int
-                     -> ST RealWorld ( VU.Vector (IOOp RealWorld)
+                     -> ST RealWorld ( V.Vector (IOOp RealWorld)
                                      , -- fill the vector with new randomly generated IOOps
                                        Random.StdGen -> ST RealWorld ()
                                      )
 mkGenerateIOOpsBatch !fd !buf !lastBlock !size = do
-    v <- VUM.new size
-    v' <- VU.unsafeFreeze v
+    v <- VM.new size
+    v' <- V.unsafeFreeze v
     pure (v', \rng -> go v rng 0)
   where
-    go :: VU.MVector RealWorld (IOOp RealWorld) -> Random.StdGen -> Int -> ST RealWorld ()
+    go :: V.MVector RealWorld (IOOp RealWorld) -> Random.StdGen -> Int -> ST RealWorld ()
     go !_ !_   !i | i == size = return ()
     go !v !rng !i = do
       let (!block, !rng') = Random.uniformR (0, lastBlock) rng
           !bufOff   = i * 4096
           !blockoff = fromIntegral (block * 4096)
-      VUM.unsafeWrite v i $! IOOpRead fd blockoff buf bufOff 4096
+      VM.unsafeWrite v i $! IOOpRead fd blockoff buf bufOff 4096
       go v rng' (i+1)
 
 {-# INLINE forRngSplitM_ #-}
