@@ -7,6 +7,7 @@
 
 module System.IO.BlockIO.URingFFI where
 
+import Data.Void
 import Foreign
 import Foreign.C
 import Prelude hiding (head, tail)
@@ -91,6 +92,26 @@ foreign import capi unsafe "liburing.h io_uring_prep_write"
 
 foreign import capi unsafe "liburing.h io_uring_prep_nop"
   io_uring_prep_nop :: Ptr URingSQE -> IO ()
+
+io_uring_prep_cancel64_shim :: Ptr URingSQE -> CULong -> CInt -> IO ()
+#ifdef LIBURING_HAVE_DATA64
+io_uring_prep_cancel64_shim p user_data flags =
+    io_uring_prep_cancel64 p user_data flags
+#else
+io_uring_prep_cancel64_shim p user_data flags =
+    alloca $ \(p_user_data :: Ptr CULong) -> do
+      poke (castPtr p_user_data) user_data
+      io_uring_prep_cancel p p_user_data flags
+#endif
+
+foreign import capi unsafe "liburing.h io_uring_prep_cancel64"
+  io_uring_prep_cancel64 :: Ptr URingSQE -> CULong -> CInt -> IO ()
+
+foreign import capi unsafe "liburing.h io_uring_prep_cancel"
+  io_uring_prep_cancel :: Ptr URingSQE -> Ptr Void -> CInt -> IO ()
+
+iORING_ASYNC_CANCEL_ANY :: CUInt
+iORING_ASYNC_CANCEL_ANY = #{const IORING_ASYNC_CANCEL_ANY}
 
 foreign import capi unsafe "liburing.h io_uring_submit"
   io_uring_submit :: Ptr URing -> IO CInt
