@@ -49,6 +49,10 @@ import           System.IO.BlockIO.URing (IOResult(..))
 
 -- | IO context: a handle used by threads submitting IO batches.
 --
+-- Internally, each GHC capability in the program creates its own independent IO
+-- context. This means that each capability can process batches of I/O
+-- operations independently. As such, running with more capabilities can
+-- increase throughput.
 newtype IOCtx = IOCtx (V.Vector IOCapCtx) -- one per RTS capability.
 
 type CapNo = Int
@@ -79,12 +83,51 @@ data IOCapCtx = IOCapCtx {
                ioctxCloseSync :: !(MVar ())
              }
 
+-- | Parameters for instantiating an 'IOCtx' IO context.
+--
+-- Picking suitable parameters for high performance depends on the hardware that
+-- is used and the workload of the program. There are benchmarks included in the
+-- [@blockio-uring@](https://github.com/well-typed/blockio-uring) repository
+-- that can help gauge the performance for a random 4k read workload, but some
+-- trial and error with custom benchmarks might be required.
+--
+-- Ideally the concurrency limit should be a multiple of the batch size limit.
+-- This should ensure that there can be multiple batches in flight at once. If
+-- so, the SSD can more often than not pick up new I/O batches to perform as
+-- soon as it has finished other batches.
+--
+-- Ideally the batch size limit should be equal to if not larger than the number
+-- of I/O operations that an SSD can perform concurrently. This ensures that the
+-- SSD can perform most if not all I/O operations in a batch concurrently.
+--
+-- Internally, each GHC capability in the program creates its own independent IO
+-- context. These parameters apply separately to each capability's IO context.
+-- For example, if the program runs with 2 capabilities, a batch size limit of
+-- 64, and a concurrency limit of 256, then each capability gets its own IO
+-- context, and each IO context can process batches of at most 64 I/O operations
+-- at a time, and each IO context can only process 4 such batches concurrently.
 data IOCtxParams = IOCtxParams {
-                     ioctxBatchSizeLimit   :: !Int,
-                     ioctxConcurrencyLimit :: !Int
-                   }
+    -- | The maximum size of a batch of I\/O operations that can be processed as
+    -- a whole.
+    --
+    -- Note that his does /not/ affect the size of batches of I/O operations
+    -- that can be submitted using 'submitIO'. There is no restriction on the
+    -- size of batches submitted using 'submitIO'. If the size of a batch that
+    -- is passed to 'submitIO' exceeds this limit, then internally these batches
+    -- will split into sub-batches of size at most the limit, and each sub-batch
+    -- is processed individually.
+    ioctxBatchSizeLimit   :: !Int,
+    -- | The total number of I/O operations that can be processed concurrently.
+    --
+    -- If a use of 'submitIO' would lead to this limit being exceeded, then the
+    -- call to 'submitIO' will block until enough I/O batches have been
+    -- processed.
+    ioctxConcurrencyLimit :: !Int
+  }
   deriving stock Show
 
+-- | Default parameters. Some manual tuning of parameters might be required to
+-- achieve higher performance targets (see 'IOCtxParams' for hints).
 defaultIOCtxParams :: IOCtxParams
 defaultIOCtxParams =
   IOCtxParams {
@@ -199,7 +242,8 @@ closeIOCapCtx IOCapCtx {ioctxURing, ioctxCloseSync} = do
 
 -- | The 'MutableByteArray' buffers within __must__ be pinned. Addresses into
 -- these buffers are passed to @io_uring@, and the buffers must therefore not be
--- moved around.
+-- moved around. 'submitIO' will check that buffers are pinned, and will throw
+-- errors if it finds any that are not pinned.
 data IOOp s = IOOpRead  !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
             | IOOpWrite !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
 
