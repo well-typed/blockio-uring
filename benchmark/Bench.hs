@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {- HLINT ignore "Use camelCase" -}
 
@@ -58,11 +57,7 @@ main = do
 main_lowlevel :: Bool -> FilePath -> IO ()
 main_lowlevel useCache filename = do
   putStrLn "Low-level API benchmark"
-#if MIN_VERSION_unix(2,8,0)
   fd <- openFd filename ReadOnly defaultFileFlags
-#else
-  fd <- openFd filename ReadOnly Nothing defaultFileFlags
-#endif
 
   fileSetCaching fd useCache
   putStrLn $ "File caching:    " ++ show useCache
@@ -119,11 +114,7 @@ main_lowlevel useCache filename = do
 main_highlevel :: Bool -> FilePath -> IO ()
 main_highlevel useCache filename = do
   putStrLn "High-level API benchmark"
-#if MIN_VERSION_unix(2,8,0)
   fd     <- openFd filename ReadOnly defaultFileFlags
-#else
-  fd     <- openFd filename ReadOnly Nothing defaultFileFlags
-#endif
 
   fileSetCaching fd useCache
   putStrLn $ "File caching:    " ++ show useCache
