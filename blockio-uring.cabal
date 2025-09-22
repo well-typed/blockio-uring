@@ -76,7 +76,7 @@ library
   -- Annoyingly, liburing-2.1 has the wrong version in its liburing.pc file,
   -- namely version 2.0. So, even though we are actually only supporting >=2.1,
   -- we have to use >=2.0 here.
-  pkgconfig-depends: liburing >=2.0 && <2.12
+  pkgconfig-depends: liburing >=2.0 && <3
 
 benchmark bench
   import:            language, warnings
