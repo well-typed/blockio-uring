@@ -1,5 +1,9 @@
 # Revision history for blockio-uring
 
+## 0.1.0.2 -- 2025-09-22
+
+* PATCH: support all `2.*` versions of `liburing`
+
 ## 0.1.0.1 -- 2025-07-31
 
 * PATCH: support `liburing` up to version `2.11`
