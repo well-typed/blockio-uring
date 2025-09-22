@@ -1,6 +1,6 @@
 cabal-version:   3.4
 name:            blockio-uring
-version:         0.1.0.1
+version:         0.1.0.2
 synopsis:        Perform batches of asynchronous disk IO operations.
 description:
   This library supports disk I/O operations using the Linux io_uring API. The
@@ -36,7 +36,7 @@ source-repository head
 source-repository this
   type:     git
   location: https://github.com/well-typed/blockio-uring
-  tag:      blockio-uring-0.1.0.1
+  tag:      blockio-uring-0.1.0.2
 
 common warnings
   ghc-options:
