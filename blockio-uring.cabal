@@ -88,7 +88,7 @@ benchmark bench
     , base        <5
     , containers
     , primitive
-    , random
+    , random ^>= 1.3
     , time
     , unix        ^>=2.8.7.0
     , vector
