@@ -19,7 +19,12 @@ None
 
 ### Bug fixes
 
-None
+* On systems with limited CPU and memory resources, `submitIO` could reliably
+  fail with `EFAULT` error numbers because of frequent reaping and rescheduling
+  of Haskell's lightweight threads. The bug is fixed by always running
+  `submitIO` in a fresh bound thread. See [issue
+  #58](https://github.com/well-typed/blockio-uring/issues/58) and [PR
+  #60](https://github.com/well-typed/blockio-uring/pull/60).
 
 ## 0.1.0.3 -- 2026-03-12
 

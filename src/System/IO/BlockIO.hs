@@ -29,7 +29,7 @@ import qualified Data.Vector.Unboxed.Mutable as VUM
 import Control.Monad
 import Control.Monad.Primitive
 import Control.Concurrent (forkOn, myThreadId, threadCapability,
-                           getNumCapabilities)
+                           getNumCapabilities, runInBoundThread)
 import Control.Concurrent.MVar
 import Control.Concurrent.QSemN
 import Control.Concurrent.Chan
@@ -296,16 +296,24 @@ data IOOp s = IOOpRead  !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
 --   at least the target number in flight at once.
 --
 submitIO :: IOCtx -> V.Vector (IOOp RealWorld) -> IO (VU.Vector IOResult)
-submitIO (IOCtx capctxs) !ioops = do
-    -- Find out which capability the thread is currently running on and use
-    -- that one. It does _not matter_ for correctness if the thread is migrated
-    -- while the I/O is submitted or when waiting for completion. Migration
-    -- happens sufficiently infrequently that it should not be a performance
-    -- problem.
-    tid <- myThreadId
-    (capno, _) <- threadCapability tid
-    let !capctx = capctxs V.! (capno `mod` V.length capctxs)
-    submitCapIO capctx ioops
+submitIO (IOCtx capctxs) !ioops =
+    -- Requests have to be submitted from within a bound thread, or we might get
+    -- @EFAULT@ errors. See issue #58.
+    --
+    -- TODO <https://github.com/well-typed/blockio-uring/issues/61>: ideally,
+    -- for performance, it would be better to run a smaller section of the
+    -- 'submitIO' code inside 'runInBoundThread'. However, it is not 100% clear
+    -- what the critical code section is that /has/ to run in a bound thread .
+    -- So, for now we pick the safe option of running the entirety of 'submitIO'
+    -- in a bound thread.
+    runInBoundThread $ do
+      -- Find out which capability the thread is currently running on and use
+      -- that one. It does _not matter_ for correctness that the thread submits
+      -- IO to that same thread's capability's ring, but it is more performant.
+      tid <- myThreadId
+      (capno, _) <- threadCapability tid
+      let !capctx = capctxs V.! (capno `mod` V.length capctxs)
+      submitCapIO capctx ioops
 
 submitCapIO :: IOCapCtx -> V.Vector (IOOp RealWorld) -> IO (VU.Vector IOResult)
 submitCapIO ioctx@IOCapCtx {ioctxBatchSizeLimit'} !ioops
