@@ -125,3 +125,20 @@ foreign import capi unsafe "liburing.h io_uring_peek_cqe"
 foreign import capi unsafe "liburing.h io_uring_cqe_seen"
   io_uring_cqe_seen :: Ptr URing -> Ptr URingCQE -> IO ()
 
+
+--
+-- Calling @io_uring_set_iowait(3)@ if available
+--
+
+-- | Available only on liburing >= 2.10 and kernel >= 6.15.
+--
+-- See @io_uring_set_iowait(3)@ man page.
+#ifdef IORING_FEAT_NO_IOWAIT
+#if IORING_FEAT_NO_IOWAIT
+foreign import capi unsafe "liburing.h io_uring_set_iowait"
+  io_uring_set_iowait :: Ptr URing -> CBool -> IO CInt
+#endif
+#else
+io_uring_set_iowait :: Ptr URing -> CBool -> IO CInt
+io_uring_set_iowait _ _ = pure #{const EOPNOTSUPP}
+#endif

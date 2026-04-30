@@ -7,6 +7,7 @@ module System.IO.BlockIO.URing (
     setupURing,
     closeURing,
     withURing,
+    setIOWait,
     IOOpId(..),
     prepareRead,
     prepareWrite,
@@ -94,6 +95,10 @@ withURing :: URingParams -> (URing -> IO a) -> IO a
 withURing params =
     bracket (setupURing params) closeURing
 
+setIOWait :: URing -> Bool -> IO ()
+setIOWait URing {uringptr} b =
+    callIfSupported_ "setIOWAIT" $
+      FFI.io_uring_set_iowait uringptr (if b then 1 else 0)
 
 --
 -- Submitting I/O
@@ -231,6 +236,19 @@ throwErrnoResIfNegRetry_ label action = go
                    (Errno (-res))
                    Nothing Nothing
 
+callIfSupported_ :: String -> IO CInt -> IO ()
+callIfSupported_ label action = do
+  res <- action
+  if Errno (-res) == eOPNOTSUPP
+    then pure ()
+    else
+      when (res < 0) $
+        throwIO $
+          errnoToIOError
+          label
+          (Errno (-res))
+          Nothing Nothing
+
 throwErrResIfNull :: String -> IOErrorType -> String -> IO (Ptr a) -> IO (Ptr a)
 throwErrResIfNull location ioErrorType description action = do
     res <- action
@@ -243,4 +261,3 @@ throwErrResIfNull location ioErrorType description action = do
                  Nothing Nothing)
               description
       else return res
-
