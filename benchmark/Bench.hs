@@ -127,7 +127,8 @@ main_highlevel useCache filename = do
       lastBlock = fromIntegral (size `div` 4096 - 1)
       params    = IOCtxParams {
                     ioctxBatchSizeLimit   = 64,
-                    ioctxConcurrencyLimit = 64 * 4
+                    ioctxConcurrencyLimit = 64 * 4,
+                    ioctxIOWaitMetrics    = True
                   }
       ntasks    = 4 * ncaps
       batchsz   = 32
@@ -243,4 +244,3 @@ randomPermute rng0 xs0 =
         (i, rng') = uniformR (0, Set.size xs - 1) rng
         !x   = Set.elemAt i xs
         !xs' = Set.deleteAt i xs
-
