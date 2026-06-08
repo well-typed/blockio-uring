@@ -297,15 +297,12 @@ data IOOp s = IOOpRead  !Fd !FileOffset !(MutableByteArray s) !Int !ByteCount
 --
 submitIO :: IOCtx -> V.Vector (IOOp RealWorld) -> IO (VU.Vector IOResult)
 submitIO (IOCtx capctxs) !ioops =
-    -- Requests have to be submitted from within a bound thread, or we might get
-    -- @EFAULT@ errors. See issue #58.
-    --
-    -- TODO <https://github.com/well-typed/blockio-uring/issues/61>: ideally,
-    -- for performance, it would be better to run a smaller section of the
-    -- 'submitIO' code inside 'runInBoundThread'. However, it is not 100% clear
-    -- what the critical code section is that /has/ to run in a bound thread .
-    -- So, for now we pick the safe option of running the entirety of 'submitIO'
-    -- in a bound thread.
+    -- The OS thread that submits requests to the uring has to be alive when the
+    -- IO completes, or we get @EFAULT@ errors. One way to achieve this is to
+    -- run the code below in a bound thread. This code submits requests to the
+    -- ring /and/ waits for the completions to be reported back by the
+    -- completion thread. This ensures that the OS thread that submitted
+    -- requests stays alive long enough. See issue #58 for more information.
     runInBoundThread $ do
       -- Find out which capability the thread is currently running on and use
       -- that one. It does _not matter_ for correctness that the thread submits
