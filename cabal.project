@@ -3,7 +3,7 @@ index-state:
   -- current date: liburing-2.14
   , hackage.haskell.org 2026-03-12T00:00:00Z
 
-packages: .
+packages: blockio-uring
 
 if impl(ghc >= 9.14)
    allow-newer:
