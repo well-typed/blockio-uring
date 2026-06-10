@@ -14,9 +14,9 @@ description:
 
 license:         BSD-3-Clause
 license-file:    LICENSE
-author:          Duncan Coutts, Michael Karg
-maintainer:      duncan@well-typed.com, joris@well-typed.com
-copyright:       (c) Well-Typed LLP 2022 - 2025
+author:          Michael Karg, Duncan Coutts, Joris Dral
+maintainer:      michael.karg@iohk.io, duncan@well-typed.com, joris@well-typed.com
+copyright:       (c) Well-Typed LLP 2022 - 2026
 category:        System
 build-type:      Simple
 tested-with:
