@@ -3,7 +3,11 @@ index-state:
   -- current date: liburing-2.14
   , hackage.haskell.org 2026-03-12T00:00:00Z
 
-packages: .
+if os(linux)
+  packages: blockio-uring
+
+if os(osx)
+  packages: blockio-osx
 
 if impl(ghc >= 9.14)
    allow-newer:

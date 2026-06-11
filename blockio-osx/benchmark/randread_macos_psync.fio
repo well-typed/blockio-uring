@@ -1,0 +1,25 @@
+; macOS multi-threaded psync benchmark.
+;
+; This mirrors what the Darwin port of blockio-uring actually does
+; internally: a pool of threads each calling pread(2) concurrently.
+; numjobs=16 matches the high-level cabal bench default of 4*ncaps
+; tasks when run with +RTS -N4.
+;
+; Usage:
+;   fio benchmark/randread_macos_psync.fio --filename=<datafile>
+;
+; The data file should be at least 1 GiB.  Create one with:
+;   dd if=/dev/zero of=/tmp/bench_data bs=1m count=1024
+
+[global]
+ioengine=psync
+direct=1
+rw=randread
+bs=4k
+size=1024m
+runtime=10
+time_based
+group_reporting
+
+[multithreaded]
+numjobs=16

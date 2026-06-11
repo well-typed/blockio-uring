@@ -1,0 +1,136 @@
+cabal-version:   3.4
+name:            blockio-osx
+version:         0.1.0.0
+synopsis:        Perform batches of asynchronous disk IO operations on macOS.
+description:
+  macOS (Darwin) backend for the blockio library. Uses Grand Central Dispatch
+  and kqueue to provide the same batched async I\/O interface as the Linux
+  io_uring backend in @blockio-uring@.
+
+  Each submitted I\/O operation is dispatched via @dispatch_async@ on a GCD
+  concurrent queue. Completions are delivered through a pipe monitored with
+  @kqueue EVFILT_READ@. The public API (@initIOCtx@, @submitIO@, @closeIOCtx@)
+  is identical to @blockio-uring@.
+
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          Michael Karg, Duncan Coutts, Joris Dral
+maintainer:      michael.karg@iohk.io, duncan@well-typed.com, joris@well-typed.com
+copyright:       (c) Well-Typed LLP 2022 - 2026
+category:        System
+build-type:      Simple
+tested-with:
+  GHC ==9.6 || ==9.12
+
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+  docs/*.md
+
+extra-source-files:
+  cbits/darwin_io.c
+  cbits/darwin_io.h
+
+source-repository head
+  type:     git
+  location: https://github.com/well-typed/blockio-uring
+
+common warnings
+  ghc-options:
+    -Wall -Wcompat -Wincomplete-uni-patterns
+    -Wincomplete-record-updates -Wpartial-fields -Widentities
+    -Wredundant-constraints -Wmissing-export-lists
+    -Wno-unticked-promoted-constructors -Wunused-packages
+
+  ghc-options: -Werror=missing-deriving-strategies
+
+common language
+  default-language:   GHC2021
+  default-extensions:
+    DeriveAnyClass
+    DerivingStrategies
+    DerivingVia
+    ExplicitNamespaces
+    GADTs
+    LambdaCase
+    RecordWildCards
+    RoleAnnotations
+    ViewPatterns
+
+common darwin-c
+  c-sources:         cbits/darwin_io.c
+  include-dirs:      cbits
+  extra-libraries:   pthread
+  if !os(darwin)
+    buildable:       False
+
+library
+  import:            language, warnings, darwin-c
+  exposed-modules:   System.IO.BlockIO.OSX
+  hs-source-dirs:    src
+  other-modules:
+    System.IO.BlockIO.URing
+    System.IO.BlockIO.DarwinFFI
+
+  build-depends:
+    , base       >=4.16  && <4.23
+    , primitive  ^>=0.8  || ^>=0.9
+    , vector     ^>=0.13
+
+benchmark bench
+  import:            language, warnings, darwin-c
+  type:              exitcode-stdio-1.0
+  hs-source-dirs:    benchmark src
+  main-is:           Bench.hs
+  build-depends:
+    , async
+    , base        <5
+    , containers
+    , primitive
+    , random      ^>=1.3
+    , time
+    , unix        ^>=2.8.7.0
+    , vector
+
+  other-modules:
+    System.IO.BlockIO.OSX
+    System.IO.BlockIO.URing
+    System.IO.BlockIO.DarwinFFI
+
+  ghc-options:       -threaded -with-rtsopts=-T
+
+test-suite test
+  import:         language, warnings
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        test.hs
+  build-depends:
+    , base              <5
+    , blockio-osx
+    , primitive
+    , tasty
+    , tasty-hunit
+    , tasty-quickcheck
+    , vector
+
+  ghc-options:    -threaded
+
+  if !os(darwin)
+    buildable:    False
+
+test-suite test-internals
+  import:            language, warnings, darwin-c
+  type:              exitcode-stdio-1.0
+  hs-source-dirs:    test src
+  main-is:           test-internals.hs
+  build-depends:
+    , base        <5
+    , tasty
+    , tasty-hunit
+    , vector
+
+  other-modules:
+    System.IO.BlockIO.URing
+    System.IO.BlockIO.DarwinFFI
+
+  ghc-options:       -threaded -fno-ignore-asserts

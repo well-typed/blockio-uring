@@ -1,0 +1,35 @@
+; macOS equivalent of randread.fio using the posixaio engine.
+;
+; io_uring is not available on macOS; posixaio is the closest async I/O
+; engine fio offers.  Two jobs are defined:
+;
+;   shallow  – iodepth=64, batch=32  mirrors the low-level cabal bench
+;              (single ring, 32 ops pipelined at a time, 64 in flight)
+;   deep     – iodepth=256, batch=64  probes the posixaio ceiling
+;              (kern.aiomax limits macOS POSIX AIO to ~90 concurrent ops
+;               by default, so this job reveals the saturation point)
+;
+; Usage:
+;   fio benchmark/randread_macos_posixaio.fio --filename=<datafile>
+;
+; The data file should be at least 1 GiB.  Create one with:
+;   dd if=/dev/zero of=/tmp/bench_data bs=1m count=1024
+
+[global]
+ioengine=posixaio
+direct=1
+rw=randread
+bs=4k
+size=1024m
+runtime=10
+time_based
+
+[shallow]
+iodepth=64
+iodepth_batch_submit=32
+iodepth_low=32
+
+[deep]
+iodepth=256
+iodepth_batch_submit=64
+iodepth_low=128
