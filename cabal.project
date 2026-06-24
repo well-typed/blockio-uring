@@ -1,26 +1,6 @@
 index-state:
   -- Bump this if you need newer packages from Hackage
-  -- current date: liburing-2.14
-  , hackage.haskell.org 2026-03-12T00:00:00Z
+  -- current date: ghc-9.14 support
+  , hackage.haskell.org 2026-06-24T00:00:00Z
 
 packages: .
-
-if impl(ghc >= 9.14)
-   allow-newer:
-     -- https://github.com/haskell/aeson/issues/1155
-     aeson:containers,
-     aeson:template-haskell,
-     -- https://github.com/haskellari/indexed-traversable/issues/49
-     indexed-traversable:base,
-     indexed-traversable:containers,
-     indexed-traversable:template-haskell,
-     -- https://github.com/haskellari/indexed-traversable/issues/50
-     indexed-traversable-instances:base,
-     -- https://github.com/haskellari/these/issues/211
-     semialign:base,
-     semialign:containers,
-     these:base,
-     -- https://github.com/haskellari/time-compat/issues/48
-     time-compat:base,
-     -- https://github.com/haskell-hvr/uuid/issues/95
-     uuid-types:template-haskell
